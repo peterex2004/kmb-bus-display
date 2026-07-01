@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>九巴班次顯示</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f0f2f5;
+    --primary: #c0392b;
+    --primary-dim: #fde8e6;
+    --primary-border: #f5c6c2;
+    --green: #15803d;
+    --green-bg: #dcfce7;
+    --green-border: #86efac;
+    --orange: #c2410c;
+    --orange-bg: #fff7ed;
+    --orange-border: #fed7aa;
+    --red: #dc2626;
+    --red-bg: #fef2f2;
+    --red-border: #fecaca;
+    --card-bg: #ffffff;
+    --border: #e0e3e8;
+    --text: #1a1a2e;
+    --muted: #9ca3af;
+    --btn-bg: #e8eaed;
+    --btn-active: #d1d5db;
+    --header-bg: #ffffff;
+    --shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans TC', sans-serif;
+    overflow: hidden;
+    touch-action: manipulation;
+  }
+
+  /* ── Screens ── */
+  .screen { display: none; flex-direction: column; height: 100vh; }
+  .screen.active { display: flex; }
+
+  /* ════════════════════════════════════════
+     SCREEN 1 — SELECTION
+  ════════════════════════════════════════ */
+  #sel-screen { padding: 12px; gap: 10px; }
+
+  .sel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex: 0 0 auto;
+  }
+
+  .sel-header h1 {
+    font-size: 1rem;
+    color: var(--primary);
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  #btn-goto-board {
+    font-size: 0.8rem;
+    padding: 7px 16px;
+    background: var(--primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-weight: 600;
+    touch-action: manipulation;
+    box-shadow: var(--shadow);
+  }
+
+  /* Typed route display */
+  .sel-input-area {
+    flex: 0 0 auto;
+    background: var(--card-bg);
+    border: 2px solid var(--primary-border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    min-height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    box-shadow: var(--shadow);
+  }
+
+  #typed-display {
+    font-size: 2rem;
+    letter-spacing: 4px;
+    color: var(--primary);
+    font-weight: 700;
+    min-width: 80px;
+  }
+
+  #valid-badge {
+    font-size: 0.78rem;
+    color: var(--green);
+    font-weight: 600;
+  }
+
+  /* Route match list */
+  #route-matches {
+    flex: 1 1 0;
+    overflow-y: auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    background: var(--card-bg);
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+    overflow-x: hidden;
+  }
+
+  .rli-loading {
+    color: var(--muted);
+    font-size: 0.8rem;
+    padding: 16px;
+    text-align: center;
+  }
+
+  .rli {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    gap: 12px;
+  }
+
+  .rli:last-child { border-bottom: none; }
+  .rli:active { background: #f9fafb; }
+
+  .rli-num {
+    font-size: 1.15rem;
+    font-weight: 700;
+    color: var(--primary);
+    min-width: 60px;
+    letter-spacing: 0.5px;
+  }
+
+  .rli-dests {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .rli-dest {
+    font-size: 0.82rem;
+    color: var(--text);
+  }
+
+  .rli-dest.inbound { color: var(--muted); }
+
+  /* Numpad */
+  .sel-numpad {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .numpad-digits {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .numpad-letters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+  }
+
+  button.key {
+    background: var(--btn-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 1.2rem;
+    font-family: inherit;
+    padding: 13px 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    transition: background 0.08s;
+    -webkit-tap-highlight-color: transparent;
+    font-weight: 500;
+    box-shadow: var(--shadow);
+  }
+
+  button.key:active { background: var(--btn-active); }
+
+  button.key.dim { color: var(--muted); border-color: #e8eaed; box-shadow: none; }
+
+  button.key.letter { padding: 10px 14px; font-size: 1rem; }
+
+  button.key.clr { color: var(--red); }
+  button.key.bsp { color: #6b7280; }
+
+  #btn-add-route {
+    background: var(--btn-bg);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    color: var(--muted);
+    font-size: 1rem;
+    font-family: inherit;
+    padding: 13px;
+    cursor: not-allowed;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    font-weight: 600;
+  }
+
+  #btn-add-route.enabled {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+    cursor: pointer;
+    box-shadow: var(--shadow);
+  }
+
+  /* ════════════════════════════════════════
+     SCREEN 2 — STOP PICKER
+  ════════════════════════════════════════ */
+  #stop-screen { padding: 0; }
+
+  .stop-header {
+    flex: 0 0 auto;
+    background: var(--header-bg);
+    border-bottom: 2px solid var(--primary-border);
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .stop-header-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  #stop-back {
+    background: var(--btn-bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 0.9rem;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+  }
+
+  #stop-route-label {
+    font-size: 1.3rem;
+    color: var(--primary);
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .stop-dir-hint {
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  .dir-tabs { display: flex; gap: 6px; }
+
+  .dir-tab {
+    flex: 1;
+    background: var(--btn-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 0.85rem;
+    padding: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+    font-weight: 500;
+  }
+
+  .dir-tab.active {
+    background: var(--primary-dim);
+    border-color: var(--primary);
+    color: var(--primary);
+    font-weight: 600;
+  }
+
+  #stop-list {
+    flex: 1 1 0;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .stop-item {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    touch-action: manipulation;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;        /* never compress — scroll instead */
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .stop-item:active { background: #fafafa; }
+
+  .stop-item.stop-expanded {
+    border-color: var(--primary);
+    background: var(--primary-dim);
+  }
+
+  .stop-item-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 14px;
+    height: 52px;          /* fixed tile height for non-expanded row */
+    flex-shrink: 0;
+  }
+
+  .stop-seq {
+    font-size: 0.75rem;
+    color: var(--muted);
+    min-width: 22px;
+    text-align: right;
+    font-weight: 500;
+    flex-shrink: 0;
+  }
+
+  .stop-names { flex: 1; min-width: 0; }
+
+  .stop-name-tc { font-size: 0.95rem; color: var(--text); font-weight: 500; }
+  .stop-name-en { font-size: 0.68rem; color: var(--muted); margin-top: 1px; }
+
+  .stop-eta-mini {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: var(--green);
+    flex-shrink: 0;
+    min-width: 30px;
+    text-align: right;
+  }
+
+  .stop-eta-mini.soon { color: var(--orange); }
+  .stop-eta-mini.now  { color: var(--red); }
+  .stop-eta-mini.loading { color: var(--muted); font-weight: 400; }
+
+  .stop-eta-detail {
+    padding: 4px 14px 12px 48px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .stop-star {
+    background: none;
+    border: none;
+    font-size: 1.35rem;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    touch-action: manipulation;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .stop-star:active { color: #f59e0b; }
+
+  .stop-loading {
+    color: var(--muted);
+    text-align: center;
+    padding: 40px;
+    font-size: 0.9rem;
+  }
+
+  /* ════════════════════════════════════════
+     SCREEN 3 — DEPARTURE BOARD
+  ════════════════════════════════════════ */
+  #disp-screen { padding: 0; }
+
+  .board-header {
+    flex: 0 0 auto;
+    background: var(--header-bg);
+    border-bottom: 2px solid var(--primary-border);
+    padding: 9px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    box-shadow: var(--shadow);
+  }
+
+  .board-title {
+    font-size: 0.95rem;
+    color: var(--primary);
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .board-header-btns { display: flex; gap: 8px; align-items: center; }
+
+  #last-update { font-size: 0.65rem; color: var(--muted); }
+
+  #btn-board-edit {
+    background: none;
+    border: 1px solid var(--primary-border);
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 0.8rem;
+    padding: 5px 12px;
+    border-radius: 5px;
+    cursor: pointer;
+    touch-action: manipulation;
+    font-weight: 500;
+  }
+
+  #btn-board-edit:active { background: var(--primary-dim); }
+
+  #btn-board-add {
+    background: var(--primary);
+    border: none;
+    color: #fff;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    cursor: pointer;
+    touch-action: manipulation;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(192,57,43,0.35);
+  }
+
+  #btn-board-add:active { opacity: 0.82; }
+
+  #board-rows {
+    flex: 1 1 0;
+    overflow-y: auto;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .board-empty {
+    color: var(--muted);
+    text-align: center;
+    padding: 60px 20px;
+    font-size: 0.9rem;
+    line-height: 2;
+  }
+
+  .board-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-left: 4px solid var(--primary);
+    border-radius: 8px;
+    padding: 12px 14px;
+    position: relative;
+    box-shadow: var(--shadow);
+    cursor: pointer;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .board-card:active { background: #fafafa; }
+  .board-card.starred-card { background: #fffbf0; border-left-color: #f59e0b; }
+
+  .board-card-top {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 3px;
+    padding-right: 36px;
+  }
+
+  .board-route {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: var(--primary);
+    letter-spacing: 0.5px;
+    min-width: 64px;
+  }
+
+  .board-dest {
+    font-size: 0.88rem;
+    color: var(--text);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 500;
+  }
+
+  .board-card-stop {
+    font-size: 0.68rem;
+    color: var(--muted);
+    margin-bottom: 8px;
+    padding-right: 36px;
+  }
+
+  .board-etas { display: flex; gap: 7px; flex-wrap: wrap; }
+
+  .eta-pill {
+    background: var(--green-bg);
+    border: 1px solid var(--green-border);
+    border-radius: 6px;
+    padding: 5px 14px;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--green);
+    min-width: 56px;
+    text-align: center;
+  }
+
+  .eta-pill.soon {
+    background: var(--orange-bg);
+    border-color: var(--orange-border);
+    color: var(--orange);
+  }
+
+  .eta-pill.now {
+    background: var(--red-bg);
+    border-color: var(--red-border);
+    color: var(--red);
+  }
+
+  .eta-pill.no-data {
+    background: #f9fafb;
+    border-color: var(--border);
+    color: var(--muted);
+    font-size: 0.8rem;
+    font-weight: 400;
+  }
+
+  .board-star {
+    position: absolute;
+    top: 9px;
+    right: 9px;
+    background: none;
+    border: none;
+    font-size: 1.25rem;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    touch-action: manipulation;
+    line-height: 1;
+    z-index: 1;
+  }
+
+  .board-star.starred { color: #f59e0b; }
+
+  .board-del {
+    background: none;
+    border: 1px solid #fca5a5;
+    color: var(--red);
+    font-size: 0.72rem;
+    padding: 3px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+    display: none;
+    margin-top: 6px;
+  }
+
+  .edit-mode .board-del { display: inline-block; }
+
+  /* ── Offline banner ── */
+  #offline-banner {
+    display: none;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    background: var(--red);
+    color: #fff;
+    text-align: center;
+    padding: 10px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    z-index: 999;
+  }
+
+  #offline-banner.show { display: block; }
+
+  /* ── Spinner ── */
+  .spinner {
+    display: inline-block;
+    width: 14px; height: 14px;
+    border: 2px solid var(--border);
+    border-top-color: var(--primary);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-left: 6px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ════════════════════════════════════════
+     RESPONSIVE — compact for landscape / small screens
+  ════════════════════════════════════════ */
+  @media (max-height: 520px), (orientation: landscape) {
+    /* Stop list: tighter rows */
+    .stop-item-row { padding: 0 12px; height: 42px; }
+    .stop-name-tc  { font-size: 0.85rem; }
+    .stop-name-en  { font-size: 0.62rem; }
+    .stop-eta-detail { padding: 3px 12px 8px 36px; gap: 6px; }
+    .stop-loading  { padding: 20px; }
+    #stop-list     { gap: 3px; padding: 5px; }
+
+    /* Board cards: tighter */
+    .board-card    { padding: 8px 12px; }
+    .board-route   { font-size: 1.2rem; min-width: 52px; }
+    .board-dest    { font-size: 0.8rem; }
+    .board-card-stop { font-size: 0.62rem; margin-bottom: 5px; }
+    .board-etas    { gap: 5px; }
+    .eta-pill      { padding: 4px 10px; font-size: 0.88rem; min-width: 48px; }
+    #board-rows    { gap: 5px; padding: 5px; }
+
+    /* Selection screen: tighter numpad */
+    button.key     { padding: 10px 6px; font-size: 1.05rem; }
+    button.key.letter { padding: 8px 10px; font-size: 0.9rem; }
+    .sel-input-area { min-height: 46px; padding: 8px 14px; }
+    #typed-display { font-size: 1.6rem; }
+    #sel-screen    { gap: 7px; padding: 8px; }
+    .sel-numpad    { gap: 5px; }
+    .numpad-digits { gap: 4px; }
+    .numpad-letters { gap: 4px; }
+    #btn-add-route { padding: 10px; }
+
+    /* Headers */
+    .stop-header   { padding: 7px 12px; gap: 6px; }
+    .board-header  { padding: 6px 12px; }
+    .dir-tab       { padding: 6px; font-size: 0.8rem; }
+  }
+
+  /* Landscape two-column for selection screen */
+  @media (orientation: landscape) and (max-height: 520px) {
+    #sel-screen {
+      flex-direction: row;
+      flex-wrap: wrap;
+    }
+    .sel-header    { flex: 0 0 100%; }
+    .sel-input-area { flex: 0 0 100%; }
+    #route-matches { flex: 1 1 0; min-height: 0; }
+    .sel-numpad    { flex: 0 0 auto; width: 220px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ════════ SCREEN 1: 路線搜尋 ════════ -->
+<div id="sel-screen" class="screen active">
+  <div class="sel-header">
+    <h1>九巴 ● 路線搜尋</h1>
+    <button type="button" id="btn-goto-board">班次板 ▶</button>
+  </div>
+
+  <div class="sel-input-area">
+    <span id="typed-display">_</span>
+    <span id="valid-badge"></span>
+  </div>
+
+  <div id="route-matches"></div>
+
+  <div class="sel-numpad">
+    <div class="numpad-digits" id="numpad-digits">
+      <button type="button" class="key" data-k="7">7</button>
+      <button type="button" class="key" data-k="8">8</button>
+      <button type="button" class="key" data-k="9">9</button>
+      <button type="button" class="key" data-k="4">4</button>
+      <button type="button" class="key" data-k="5">5</button>
+      <button type="button" class="key" data-k="6">6</button>
+      <button type="button" class="key" data-k="1">1</button>
+      <button type="button" class="key" data-k="2">2</button>
+      <button type="button" class="key" data-k="3">3</button>
+      <button type="button" class="key clr" data-k="CLR">清除</button>
+      <button type="button" class="key" data-k="0">0</button>
+      <button type="button" class="key bsp" data-k="BSP">&#9003;</button>
+    </div>
+    <div class="numpad-letters" id="numpad-letters"></div>
+    <div>
+      <button type="button" id="btn-add-route" style="width:100%">確認新增</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════ SCREEN 2: 站點選擇 ════════ -->
+<div id="stop-screen" class="screen">
+  <div class="stop-header">
+    <div class="stop-header-top">
+      <button type="button" id="stop-back">← 返回</button>
+      <span id="stop-route-label"></span>
+    </div>
+    <div class="dir-tabs" id="dir-tabs"></div>
+    <div class="stop-dir-hint">點選站點以顯示到站時間</div>
+  </div>
+  <div id="stop-list"></div>
+</div>
+
+<!-- ════════ SCREEN 3: 班次顯示板 ════════ -->
+<div id="disp-screen" class="screen">
+  <div class="board-header">
+    <span class="board-title">● 九巴班次</span>
+    <div class="board-header-btns">
+      <span id="last-update"></span>
+      <button type="button" id="btn-board-edit">編輯</button>
+      <button type="button" id="btn-board-add" title="搜尋路線">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="7"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <div id="board-rows"></div>
+</div>
+
+<!-- 離線提示 -->
+<div id="offline-banner">⚠ 服務暫停 — 網絡中斷</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// KMB ROUTES — 797 routes hardcoded
+// ═══════════════════════════════════════════════════════════
+const KMB_ROUTES = ["1","10","101","101R","101X","102","102P","102R","103","104","106","106A","106P","107","107P","108","109","11","110","111","111P","112","113","115","115P","116","117","118","118P","118R","11B","11C","11D","11K","11X","12","12A","12P","13","13D","13M","13P","13X","14","14B","14D","14H","14S","14X","15","15A","15X","16","16M","16P","16X","17","170","171","171A","171P","18","182","182X","19","1A","2","203C","203E","203S","208","21","211","211A","213A","213B","213D","213E","213M","213S","213X","214","214P","215P","215R","215X","216M","219X","224R","224X","23","230R","230X","234A","234B","234C","234D","234P","234X","235","235M","238M","238P","238X","23M","24","240X","241X","242X","243M","243P","248M","249M","249X","251A","251B","251C","251M","252","252B","252S","252X","258A","258D","258P","258S","258X","259B","259C","259D","259E","259R","259S","259X","26","260B","260C","260R","260X","261","261B","261P","261S","261X","263","263A","263B","263C","264R","265B","265M","265P","265S","267X","268","268A","268B","268C","268M","268P","268X","269B","269C","269D","269M","269P","269R","269S","269X","26M","26X","27","270","270A","270B","270C","270D","270E","270P","270R","270S","271","271A","271B","271P","271R","271S","271X","272A","272E","272K","272P","272S","272X","273","273A","273B","273C","273D","273P","273S","274","274P","274X","275R","275X","276","276A","276B","276C","276P","277A","277B","277E","277P","277X","278A","278K","278P","278X","279A","279B","279S","279X","27X","28","280X","281","281A","281B","281E","281X","282","283","284","285","285A","286A","286C","286D","286P","286X","287","287D","287P","287X","288","288A","288B","288C","288D","289K","289R","28B","28S","290","290A","290E","290X","291P","292P","293S","296A","296C","296D","296M","296P","297","297P","298","298E","298F","298X","299X","29M","2A","2B","2D","2E","2F","2P","2X","30","302","302A","307","307A","307P","30X","31","31A","31B","31M","31P","32","32H","32M","32P","33","331","331S","33A","33B","33R","33X","34","34M","35A","35X","36","36A","36B","36M","36R","36X","37","373","37M","37X","38","38A","38B","38P","38S","39A","39M","3B","3C","3D","3M","3S","3X","40","40A","40B","40E","40P","40X","41A","41M","41R","42","42A","42C","42M","43","43A","43B","43C","43D","43M","43P","43S","43X","44","44M","45","46","46P","46R","46S","46X","47A","47X","48P","48X","49","49A","49M","49P","49X","5","51","52P","52X","53","54","57M","58M","58P","58X","59A","59M","59X","5A","5C","5D","5M","5P","5R","6","600","601","601P","603","603A","603P","603S","606","606A","606X","60M","60X","613","613A","619","619P","619X","61A","61M","61P","61X","621","62P","62X","63","63R","63X","641","64K","64P","64S","64X","65K","65X","66M","66X","671","671X","673","673A","673P","678","67A","67M","67X","68","680","680B","680P","680X","681","681P","68A","68E","68F","68M","68R","68X","69","690","690P","690S","69C","69M","69P","69X","6C","6D","6E","6F","6P","6R","7","70K","70S","71A","71B","71K","71P","71S","72","72A","72C","72K","72X","73","73A","73B","73D","73F","73K","73P","73S","73X","74","74A","74B","74C","74D","74E","74F","74K","74P","74R","74S","74X","75K","75P","75X","76","76K","76S","77K","78","78A","78B","78K","78S","79K","7B","7M","8","80","80A","80K","80P","80X","81","81C","81K","81X","82B","82C","82D","82K","82X","83A","83K","83P","83S","83X","848","84M","85","85A","85B","85K","85M","85P","85S","85X","86","868","869","86A","86C","86K","86S","872","872X","87B","87C","87D","87E","87K","87P","87R","87S","88","887","888","889","88K","88X","89","891","893","89B","89C","89D","89P","89S","89X","8A","8P","9","90","900","900X","904","905","905A","905P","907C","907D","91","914","914P","914X","917","918","91B","91M","91P","91R","91S","92","92R","934","934A","935","936","936A","93A","93K","93M","93P","94","945","948","948A","948B","948E","948P","948X","95","95M","96","960","960A","960B","960C","960P","960S","960X","961","961P","961S","968","968A","968X","96R","97","978","978A","978B","98","980A","980X","981P","982X","985","985A","985B","98A","98B","98C","98D","98E","98P","98R","98S","99","99R","A30","A31","A32","A33","A33X","A34","A36","A37","A38","A41","A41P","A42","A43","A43P","A46","A47X","B1","B9","B9A","E31","E32","E32A","E33","E33P","E36","E36A","E36C","E36P","E36S","E37","E37C","E41","E42","E42C","E42P","E43","HK1","HK2","N116","N118","N121","N122","N170","N171","N182","N213","N214","N216","N237","N241","N243","N252","N260","N269","N271","N276","N281","N283","N287","N290","N293","N30","N307","N31","N36","N368","N373","N39","N3D","N41X","N42","N42A","N43","N48","N619","N64","N680","N691","N73","N78","N960","NA30","NA31","NA32","NA33","NA36","NA37","NA40","NA41","NA43","NA47","NA52","P960","P968","PB1","PB2","PB3","PB4","PB5","R108","R215","R230","R241","R298","R33","R42","R603","R78","R8","R934","R936","R948","S1","S64","S64C","S64P","S64X","SP1","SP10","SP12","SP3","SP5A","SP6","SP7","T270","T277","T74","T80","W2","W3","W4","X1","X33","X36","X40","X42C","X42P","X43","X47","X6C","X89D","X90"];
+
+// ═══════════════════════════════════════════════════════════
+// PREFIX MAP
+// ═══════════════════════════════════════════════════════════
+const PM = new Map();
+for (const r of KMB_ROUTES) {
+  for (let i = 0; i <= r.length; i++) {
+    const p = r.slice(0, i);
+    if (!PM.has(p)) PM.set(p, new Set());
+    if (i < r.length) PM.get(p).add(r[i]);
+  }
+}
+const validNext = p => PM.get(p) || new Set();
+const isRoute   = s => s.length > 0 && KMB_ROUTES.includes(s);
+
+// ═══════════════════════════════════════════════════════════
+// MOCK MODE
+// ═══════════════════════════════════════════════════════════
+const MOCK_MODE = false;
+
+const MOCK_DB = {
+  '296C': {
+    variants: [
+      { bound:'O', service_type:'1', orig_tc:'尚德', orig_en:'Sheung Tak', dest_tc:'長沙灣（海盈邨）', dest_en:'Cheung Sha Wan (Hoi Ying Estate)' },
+      { bound:'I', service_type:'1', orig_tc:'長沙灣（海盈邨）', orig_en:'Cheung Sha Wan (Hoi Ying Estate)', dest_tc:'尚德', dest_en:'Sheung Tak' }
+    ],
+    stops: [
+      { stop:'M001', seq:'1', name_tc:'尚德總站 (TK967)', name_en:'SHEUNG TAK BUS TERMINUS (TK967)' },
+      { stop:'M002', seq:'2', name_tc:'唐明街公園 (TK575)', name_en:'TONG MING STREET PARK (TK575)' },
+      { stop:'M003', seq:'3', name_tc:'將軍澳隧道轉車站 (LT301)', name_en:'TSEUNG KWAN O TUNNEL BBI (LT301)' },
+      { stop:'M004', seq:'4', name_tc:'觀塘轉車站 (KT346)', name_en:'KWUN TONG BBI (KT346)' },
+      { stop:'M005', seq:'5', name_tc:'長沙灣（海盈邨）(HC123)', name_en:'CHEUNG SHA WAN (HC123)' }
+    ]
+  },
+  '1': {
+    variants: [
+      { bound:'O', service_type:'1', orig_tc:'赤柱監獄', orig_en:'Stanley Prison', dest_tc:'尖沙咀碼頭', dest_en:'Tsim Sha Tsui Ferry' },
+      { bound:'I', service_type:'1', orig_tc:'尖沙咀碼頭', orig_en:'Tsim Sha Tsui Ferry', dest_tc:'竹園邨', dest_en:'Chuk Yuen Estate' }
+    ],
+    stops: [
+      { stop:'P001', seq:'1', name_tc:'赤柱監獄 (ST001)', name_en:'STANLEY PRISON (ST001)' },
+      { stop:'P002', seq:'2', name_tc:'赤柱村道 (ST002)', name_en:'STANLEY VILLAGE ROAD (ST002)' },
+      { stop:'P003', seq:'3', name_tc:'摩士公園 (WT105)', name_en:'MORSE PARK (WT105)' },
+      { stop:'P004', seq:'4', name_tc:'尖沙咀碼頭 (TS001)', name_en:'TSIM SHA TSUI FERRY (TS001)' }
+    ]
+  }
+};
+
+function mockRouteData(route) {
+  return MOCK_DB[route] || {
+    variants: [{ bound:'O', service_type:'1', orig_tc:'總站', orig_en:'Terminus', dest_tc:'終點站', dest_en:'Final Stop' }],
+    stops: Array.from({length:5}, (_,i) => ({ stop:`MK${route}${i}`, seq:String(i+1), name_tc:`模擬站 ${i+1} (MK00${i})`, name_en:`Mock Stop ${i+1}` }))
+  };
+}
+
+const _etaCounters = {};
+function mockEtas(stopId, route, dir) {
+  const key = `${stopId}:${route}:${dir}`;
+  _etaCounters[key] = (_etaCounters[key] || 0) + 1;
+  const base = Date.now();
+  const offset = (_etaCounters[key] % 5) * 60000;
+  const d = dir === 'outbound' ? 'O' : 'I';
+  return [
+    { dir: d, eta: new Date(base + 2*60000 - offset).toISOString() },
+    { dir: d, eta: new Date(base + 9*60000 - offset).toISOString() },
+    { dir: d, eta: new Date(base + 18*60000 - offset).toISOString() }
+  ];
+}
+
+async function mockFetch(url) {
+  await new Promise(r => setTimeout(r, 300));
+  const u = url.replace('https://data.etabus.gov.hk/v1/transport/kmb/', '');
+  const parts = u.split('/');
+  if (parts[0] === 'route' && parts.length === 4) {
+    const route = parts[1], dirStr = parts[2];
+    const db = mockRouteData(route);
+    const bound = dirStr === 'outbound' ? 'O' : 'I';
+    const v = db.variants.find(x => x.bound === bound);
+    if (!v) return { data: null };
+    return { data: { route, bound: v.bound, service_type: v.service_type, orig_tc: v.orig_tc, orig_en: v.orig_en, dest_tc: v.dest_tc, dest_en: v.dest_en } };
+  }
+  if (parts[0] === 'route' && parts.length === 1) {
+    const all = [];
+    for (const [route, db] of Object.entries(MOCK_DB)) {
+      db.variants.forEach(v => all.push({ route, bound: v.bound, service_type: v.service_type, orig_tc: v.orig_tc, orig_en: v.orig_en, dest_tc: v.dest_tc, dest_en: v.dest_en }));
+    }
+    return { data: all };
+  }
+  if (parts[0] === 'route-stop') {
+    const route = parts[1], dirStr = parts[2];
+    const db = mockRouteData(route);
+    const bound = dirStr === 'outbound' ? 'O' : 'I';
+    if (!db.variants.find(v => v.bound === bound)) return { data: [] };
+    return { data: db.stops.map(s => ({ stop: s.stop, seq: s.seq })) };
+  }
+  if (parts[0] === 'stop') {
+    const all = [];
+    for (const db of Object.values(MOCK_DB)) db.stops.forEach(s => all.push(s));
+    return { data: all };
+  }
+  if (parts[0] === 'eta') {
+    const stopId = parts[1], route = parts[2];
+    const item = board.find(b => b.stopId === stopId && b.route === route);
+    return { data: mockEtas(stopId, route, item ? item.dir : 'outbound') };
+  }
+  return { data: [] };
+}
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+const API = 'https://data.etabus.gov.hk/v1/transport/kmb';
+
+let typed = '';
+let board = [];
+let stopCache = null;
+let routeListCache = null;
+let pendingRoute = null;
+let pendingDir   = null;
+let stopScreenOrigin = 'sel'; // 'sel' | 'board'
+let editMode     = false;
+let refreshTimer = null;
+
+// Stop screen ETA state
+let currentStopList = [];   // [{stop, seq, name_tc, name_en}]
+let stopETAs = new Map();   // stopId → minutes[]
+let expandedStopId = null;
+let activeEtaRoute = null;
+let activeEtaDir   = null;
+let activeEtaStype = null;
+let activeEtaDestTc = null;
+let etaFetchToken  = 0;     // incremented on each new fetch to cancel stale results
+
+// ═══════════════════════════════════════════════════════════
+// HELPERS
+// ═══════════════════════════════════════════════════════════
+function cleanName(name) {
+  // Strip stop codes like "(WT916)" appended by KMB API
+  return name.replace(/\s*\([A-Z]{2}\d+\)\s*$/i, '').trim();
+}
+
+// ═══════════════════════════════════════════════════════════
+// PERSISTENCE
+// ═══════════════════════════════════════════════════════════
+function loadBoard() {
+  try { board = JSON.parse(localStorage.getItem('kmb_board') || '[]'); }
+  catch { board = []; }
+}
+
+function saveBoard() {
+  localStorage.setItem('kmb_board', JSON.stringify(board));
+}
+
+// ═══════════════════════════════════════════════════════════
+// OFFLINE
+// ═══════════════════════════════════════════════════════════
+function setOffline(v) {
+  document.getElementById('offline-banner').classList.toggle('show', v);
+}
+
+window.addEventListener('online',  () => setOffline(false));
+window.addEventListener('offline', () => setOffline(true));
+
+async function apiFetch(url) {
+  if (MOCK_MODE) return mockFetch(url);
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(r.status);
+    setOffline(false);
+    return await r.json();
+  } catch (e) {
+    if (!navigator.onLine) setOffline(true);
+    throw e;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCREEN ROUTER
+// ═══════════════════════════════════════════════════════════
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCREEN 1 — SELECTION
+// ═══════════════════════════════════════════════════════════
+async function ensureRouteList() {
+  if (routeListCache) return;
+  routeListCache = new Map();
+  try {
+    const data = await apiFetch(`${API}/route/`);
+    for (const r of (data.data || [])) {
+      if (!routeListCache.has(r.route)) routeListCache.set(r.route, []);
+      const existing = routeListCache.get(r.route);
+      const dir = r.bound === 'O' ? 'outbound' : 'inbound';
+      // Deduplicate by direction — keep only first entry per direction
+      if (!existing.find(e => e.dir === dir)) {
+        existing.push({ dir, destTc: r.dest_tc, destEn: r.dest_en });
+      }
+    }
+  } catch(e) { /* show routes without destinations */ }
+}
+
+function renderSelScreen() {
+  typed = '';
+  updateNumpad();
+  ensureRouteList().then(() => updateMatchList());
+}
+
+function updateNumpad() {
+  const vn = validNext(typed);
+
+  document.querySelectorAll('#numpad-digits .key[data-k]').forEach(btn => {
+    const k = btn.dataset.k;
+    if (k === 'CLR' || k === 'BSP') return;
+    btn.classList.toggle('dim', !vn.has(k));
+  });
+
+  const letters = [...vn].filter(c => /[A-Z]/.test(c)).sort();
+  const lettersEl = document.getElementById('numpad-letters');
+  lettersEl.innerHTML = '';
+  for (const l of letters) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'key letter';
+    btn.dataset.k = l;
+    btn.textContent = l;
+    btn.addEventListener('click', () => pressKey(l));
+    lettersEl.appendChild(btn);
+  }
+
+  document.getElementById('typed-display').textContent = typed || '_';
+
+  const badge = document.getElementById('valid-badge');
+  badge.textContent = isRoute(typed) ? '✓ 有效路線' : '';
+
+  updateMatchList();
+
+  document.getElementById('btn-add-route').classList.toggle('enabled', isRoute(typed));
+}
+
+function updateMatchList() {
+  const matchesEl = document.getElementById('route-matches');
+  matchesEl.innerHTML = '';
+
+  const matches = typed.length > 0
+    ? KMB_ROUTES.filter(r => r.startsWith(typed)).sort()
+    : KMB_ROUTES.slice().sort();
+
+  if (!routeListCache) {
+    matchesEl.innerHTML = '<div class="rli-loading">載入路線資料中… <span class="spinner"></span></div>';
+    return;
+  }
+
+  for (const r of matches) {
+    const dests = routeListCache.get(r) || [];
+    const row = document.createElement('div');
+    row.className = 'rli';
+    row.dataset.route = r;
+
+    const destHtml = dests.length > 0
+      ? dests.map(d => `<span class="rli-dest ${d.dir === 'inbound' ? 'inbound' : ''}">往 ${d.destTc || d.destEn || ''}</span>`).join('')
+      : '<span class="rli-dest" style="color:var(--muted)">—</span>';
+
+    row.innerHTML = `<span class="rli-num">${r}</span><div class="rli-dests">${destHtml}</div>`;
+    row.addEventListener('click', () => {
+      typed = r;
+      updateNumpad();
+      stopRefresh();
+      stopScreenOrigin = 'sel';
+      openStopScreen(r);
+    });
+    matchesEl.appendChild(row);
+  }
+}
+
+function pressKey(k) {
+  if (k === 'CLR') {
+    typed = '';
+  } else if (k === 'BSP') {
+    typed = typed.slice(0, -1);
+  } else {
+    const next = typed + k;
+    if (PM.has(next) || KMB_ROUTES.includes(next)) typed = next;
+  }
+  updateNumpad();
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCREEN 2 — STOP PICKER
+// ═══════════════════════════════════════════════════════════
+async function openStopScreen(route, preselectDir = null) {
+  pendingRoute = { route, variants: [] };
+  pendingDir = null;
+  document.getElementById('stop-route-label').textContent = route;
+  document.getElementById('stop-list').innerHTML = '<div class="stop-loading">載入中… <span class="spinner"></span></div>';
+  showScreen('stop-screen');
+
+  try {
+    const combos = [['outbound','1'],['inbound','1'],['outbound','2'],['inbound','2']];
+    const results = await Promise.allSettled(
+      combos.map(([d, st]) => apiFetch(`${API}/route/${route}/${d}/${st}`))
+    );
+    const variants = results
+      .filter(r => r.status === 'fulfilled' && r.value.data)
+      .map(r => r.value.data)
+      .filter(v => v && v.route)
+      .map(v => ({
+        dir: v.bound === 'O' ? 'outbound' : 'inbound',
+        serviceType: v.service_type,
+        origTc: v.orig_tc,
+        origEn: v.orig_en,
+        destTc: v.dest_tc,
+        destEn: v.dest_en
+      }))
+      // Deduplicate by dir (keep first per direction)
+      .filter((v, _, arr) => arr.findIndex(x => x.dir === v.dir) === arr.indexOf(v));
+    pendingRoute.variants = variants;
+
+    const tabsEl = document.getElementById('dir-tabs');
+    tabsEl.innerHTML = '';
+    const dirs = [...new Set(variants.map(v => v.dir))];
+    const initialDir = preselectDir && dirs.includes(preselectDir) ? preselectDir : dirs[0];
+
+    dirs.forEach((dir) => {
+      const v = variants.find(x => x.dir === dir);
+      const label = '往 ' + (v.destTc || v.destEn || dir);
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'dir-tab' + (dir === initialDir ? ' active' : '');
+      btn.dataset.dir = dir;
+      btn.textContent = label;
+      btn.addEventListener('click', () => {
+        tabsEl.querySelectorAll('.dir-tab').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        loadStops(route, dir);
+      });
+      tabsEl.appendChild(btn);
+    });
+
+    if (initialDir) await loadStops(route, initialDir);
+  } catch (e) {
+    document.getElementById('stop-list').innerHTML =
+      '<div class="stop-loading" style="color:var(--red)">載入失敗，請檢查網絡</div>';
+  }
+}
+
+async function ensureStopCache() {
+  if (stopCache) return;
+  const data = await apiFetch(`${API}/stop`);
+  stopCache = new Map();
+  for (const s of (data.data || [])) {
+    stopCache.set(s.stop, { name_tc: s.name_tc, name_en: s.name_en });
+  }
+}
+
+async function loadStops(route, dir) {
+  pendingDir = dir;
+  expandedStopId = null;
+  stopETAs = new Map();
+  activeEtaRoute  = route;
+  activeEtaDir    = dir;
+  const variant = pendingRoute.variants.find(v => v.dir === dir) || { serviceType: '1', destTc: '', destEn: '' };
+  activeEtaStype  = variant.serviceType;
+  activeEtaDestTc = variant.destTc || variant.destEn || '';
+
+  const listEl = document.getElementById('stop-list');
+  listEl.innerHTML = '<div class="stop-loading">載入站點中… <span class="spinner"></span></div>';
+
+  try {
+    const [stopsData] = await Promise.all([
+      apiFetch(`${API}/route-stop/${route}/${dir}/${variant.serviceType}`),
+      ensureStopCache()
+    ]);
+
+    const stops = stopsData.data || [];
+    if (stops.length === 0) {
+      listEl.innerHTML = '<div class="stop-loading">此方向暫無站點資料</div>';
+      return;
+    }
+
+    currentStopList = stops.map(s => {
+      const raw = stopCache.get(s.stop) || { name_tc: s.stop, name_en: '' };
+      return { stop: s.stop, seq: s.seq, name_tc: cleanName(raw.name_tc), name_en: cleanName(raw.name_en) };
+    });
+
+    renderStopList();
+    fetchAllStopETAs(); // background — auto-expands nearest stop when done
+  } catch (e) {
+    listEl.innerHTML = '<div class="stop-loading" style="color:var(--red)">載入失敗，請檢查網絡</div>';
+  }
+}
+
+function renderStopList() {
+  const listEl = document.getElementById('stop-list');
+  listEl.innerHTML = '';
+
+  for (const s of currentStopList) {
+    const etas = stopETAs.has(s.stop) ? stopETAs.get(s.stop) : null; // null = not yet loaded
+    const isExpanded = s.stop === expandedStopId;
+
+    // Mini ETA badge (when collapsed)
+    let miniEta = '';
+    if (!isExpanded) {
+      if (etas === null) {
+        miniEta = '<span class="stop-eta-mini loading">…</span>';
+      } else if (etas.length > 0) {
+        const m = etas[0];
+        const cls = m <= 0 ? 'now' : m <= 3 ? 'soon' : '';
+        miniEta = `<span class="stop-eta-mini ${cls}">${m <= 0 ? '即將' : m + '分'}</span>`;
+      }
+    }
+
+    // Expanded ETA detail
+    let etaDetail = '';
+    if (isExpanded) {
+      if (etas === null) {
+        etaDetail = '<div class="stop-eta-detail"><span class="stop-eta-mini loading">載入中… <span class="spinner"></span></span></div>';
+      } else if (etas.length === 0) {
+        etaDetail = '<div class="stop-eta-detail"><span style="color:var(--muted);font-size:0.82rem;">暫無班次</span></div>';
+      } else {
+        const pills = etas.map(m => {
+          if (m <= 0) return '<span class="eta-pill now">即將抵達</span>';
+          if (m <= 3) return `<span class="eta-pill soon">${m} 分鐘</span>`;
+          return `<span class="eta-pill">${m} 分鐘</span>`;
+        }).join('');
+        etaDetail = `<div class="stop-eta-detail">${pills}</div>`;
+      }
+    }
+
+    const div = document.createElement('div');
+    div.className = 'stop-item' + (isExpanded ? ' stop-expanded' : '');
+    div.dataset.stopId = s.stop;
+    div.innerHTML = `
+      <div class="stop-item-row">
+        <span class="stop-seq">${s.seq}</span>
+        <div class="stop-names">
+          <div class="stop-name-tc">${s.name_tc}</div>
+          ${isExpanded ? `<div class="stop-name-en">${s.name_en}</div>` : ''}
+        </div>
+        ${miniEta}
+        <button type="button" class="stop-star" title="設為常用">☆</button>
+      </div>
+      ${etaDetail}
+    `;
+
+    div.addEventListener('click', e => {
+      if (e.target.closest('.stop-star')) return;
+      expandedStopId = (expandedStopId === s.stop) ? null : s.stop;
+      renderStopList();
+      if (expandedStopId) {
+        const el = document.querySelector(`[data-stop-id="${expandedStopId}"]`);
+        if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'nearest' }), 30);
+      }
+    });
+
+    div.querySelector('.stop-star').addEventListener('click', e => {
+      e.stopPropagation();
+      addBoardItem(activeEtaRoute, activeEtaDir, activeEtaStype, s.stop, +s.seq, s.name_tc, activeEtaDestTc, true);
+    });
+
+    listEl.appendChild(div);
+  }
+}
+
+async function fetchAllStopETAs() {
+  const token = ++etaFetchToken;
+  const route = activeEtaRoute;
+  const dir   = activeEtaDir;
+  const stype = activeEtaStype;
+  const dirCode = dir === 'outbound' ? 'O' : 'I';
+
+  const results = await Promise.allSettled(
+    currentStopList.map((s, i) =>
+      apiFetch(`${API}/eta/${s.stop}/${route}/${stype}`).then(data => {
+        const now = Date.now();
+        const etas = (data.data || [])
+          .filter(r => r.dir === dirCode && r.eta)
+          .slice(0, 3)
+          .map(r => Math.round((new Date(r.eta).getTime() - now) / 60000));
+        return { stopId: s.stop, etas };
+      })
+    )
+  );
+
+  if (token !== etaFetchToken) return; // stale — direction changed
+
+  // Store results (failed = empty array)
+  for (const [i, r] of results.entries()) {
+    if (r.status === 'fulfilled') {
+      stopETAs.set(r.value.stopId, r.value.etas);
+    } else {
+      stopETAs.set(currentStopList[i].stop, []);
+    }
+  }
+
+  // Auto-expand the stop with the nearest arriving bus
+  if (!expandedStopId) {
+    let minMins = Infinity, nearestId = null;
+    for (const s of currentStopList) {
+      const etas = stopETAs.get(s.stop);
+      if (etas && etas.length > 0 && etas[0] < minMins) {
+        minMins = etas[0];
+        nearestId = s.stop;
+      }
+    }
+    if (nearestId) expandedStopId = nearestId;
+  }
+
+  renderStopList();
+
+  // Scroll auto-expanded stop into view
+  if (expandedStopId) {
+    const el = document.querySelector(`[data-stop-id="${expandedStopId}"]`);
+    if (el) setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60);
+  }
+}
+
+function addBoardItem(route, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
+  const dup = board.find(b => b.route === route && b.dir === dir && b.stopId === stopId);
+  if (!dup) {
+    board.push({ route, dir, serviceType, stopId, stopSeq, stopName, destTc, starred });
+    saveBoard();
+  } else if (starred && !dup.starred) {
+    dup.starred = true;
+    saveBoard();
+  }
+  typed = '';
+  showBoardScreen();
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCREEN 3 — DISPLAY BOARD
+// ═══════════════════════════════════════════════════════════
+function showBoardScreen() {
+  editMode = false;
+  renderBoard();
+  showScreen('disp-screen');
+  startRefresh();
+}
+
+function renderBoard() {
+  document.getElementById('btn-board-edit').textContent = '編輯';
+  const el = document.getElementById('board-rows');
+  el.classList.remove('edit-mode');
+
+  if (board.length === 0) {
+    el.innerHTML = '<div class="board-empty">未有路線。<br>點擊「＋ 新增」以新增路線。</div>';
+    return;
+  }
+
+  el.innerHTML = board.map((item, i) => `
+    <div class="board-card${item.starred ? ' starred-card' : ''}" data-idx="${i}">
+      <div class="board-card-top">
+        <span class="board-route">${item.route}</span>
+        <span class="board-dest">往 ${item.destTc || '—'}</span>
+      </div>
+      <div class="board-card-stop">${item.stopName} &bull; 第 ${item.stopSeq} 站</div>
+      <div class="board-etas" id="etas-${i}">
+        <span class="eta-pill no-data">載入中…</span>
+      </div>
+      <button type="button" class="board-star${item.starred ? ' starred' : ''}" data-idx="${i}" title="${item.starred ? '取消常用' : '設為常用'}">${item.starred ? '★' : '☆'}</button>
+      <button type="button" class="board-del" data-idx="${i}">✕ 移除</button>
+    </div>
+  `).join('');
+
+  el.querySelectorAll('.board-card').forEach(card => {
+    card.addEventListener('click', e => {
+      if (e.target.closest('.board-star, .board-del')) return;
+      const i = +card.dataset.idx;
+      const item = board[i];
+      stopRefresh();
+      stopScreenOrigin = 'board';
+      openStopScreen(item.route, item.dir);
+    });
+  });
+
+  el.querySelectorAll('.board-star').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const i = +btn.dataset.idx;
+      board[i].starred = !board[i].starred;
+      saveBoard();
+      renderBoard();
+    });
+  });
+
+  el.querySelectorAll('.board-del').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      board.splice(+btn.dataset.idx, 1);
+      saveBoard();
+      renderBoard();
+      startRefresh();
+    });
+  });
+}
+
+async function refreshETAs() {
+  await Promise.allSettled(board.map((_, i) => fetchETA(i)));
+  const now = new Date();
+  document.getElementById('last-update').textContent =
+    `更新 ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+}
+
+async function fetchETA(idx) {
+  const item = board[idx];
+  const etasEl = document.getElementById(`etas-${idx}`);
+  if (!etasEl) return;
+
+  try {
+    const data = await apiFetch(`${API}/eta/${item.stopId}/${item.route}/${item.serviceType}`);
+    const dirCode = item.dir === 'outbound' ? 'O' : 'I';
+    const rows = (data.data || []).filter(r => r.dir === dirCode && r.eta);
+
+    if (rows.length === 0) {
+      etasEl.innerHTML = '<span class="eta-pill no-data">暫無班次</span>';
+      return;
+    }
+
+    const now = Date.now();
+    etasEl.innerHTML = rows.slice(0, 3).map(r => {
+      const mins = Math.round((new Date(r.eta).getTime() - now) / 60000);
+      if (mins <= 0) return '<span class="eta-pill now">即將抵達</span>';
+      if (mins <= 3) return `<span class="eta-pill soon">${mins} 分鐘</span>`;
+      return `<span class="eta-pill">${mins} 分鐘</span>`;
+    }).join('');
+  } catch (e) {
+    if (etasEl) etasEl.innerHTML = '<span class="eta-pill no-data">—</span>';
+  }
+}
+
+function startRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshETAs();
+  refreshTimer = setInterval(refreshETAs, 15000);
+}
+
+function stopRefresh() {
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+}
+
+function toggleEditMode() {
+  editMode = !editMode;
+  document.getElementById('board-rows').classList.toggle('edit-mode', editMode);
+  document.getElementById('btn-board-edit').textContent = editMode ? '完成' : '編輯';
+}
+
+// ═══════════════════════════════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════════════════════════════
+document.querySelectorAll('#numpad-digits .key').forEach(btn => {
+  btn.addEventListener('click', () => pressKey(btn.dataset.k));
+});
+
+document.getElementById('btn-add-route').addEventListener('click', () => {
+  if (!isRoute(typed)) return;
+  stopRefresh();
+  stopScreenOrigin = 'sel';
+  openStopScreen(typed);
+});
+
+document.getElementById('btn-goto-board').addEventListener('click', showBoardScreen);
+
+document.getElementById('stop-back').addEventListener('click', () => {
+  if (stopScreenOrigin === 'board') {
+    showBoardScreen();
+  } else {
+    showScreen('sel-screen');
+    renderSelScreen();
+  }
+});
+
+document.getElementById('btn-board-add').addEventListener('click', () => {
+  stopRefresh();
+  showScreen('sel-screen');
+  renderSelScreen();
+});
+
+document.getElementById('btn-board-edit').addEventListener('click', toggleEditMode);
+
+// ═══════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════
+loadBoard();
+renderSelScreen();
+if (board.length > 0) showBoardScreen();
+</script>
+</body>
+</html>
