@@ -70,6 +70,7 @@ Opening `index.html` directly as `file://` may block API calls in some browsers.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.3 | 2026-07-01 | Opposite direction tile at bottom of stop list; letter row moved above number pad |
 | v1.2 | 2026-07-01 | Added CTB/新巴城巴 — both companies shown in search with colour badges; CTB stop picker and ETA fully integrated |
 | v1.1 | 2026-07-01 | Numpad fixed on mobile; Home button on stop picker; safe-area inset support |
 | v1.0 | 2026-07-01 | MVP — route search, stop picker, departure board |
