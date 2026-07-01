@@ -1170,10 +1170,22 @@ async function openStopScreen(route, company = 'KMB', preselectDir = null) {
         }))
         .filter((v, _, arr) => arr.findIndex(x => x.dir === v.dir) === arr.indexOf(v));
     } else {
-      // CTB: use routeRegistry (already has directions + destinations)
+      // CTB: probe both directions via route-stop API (route list may be incomplete)
+      const [outRes, inRes] = await Promise.allSettled([
+        apiFetch(`${CTB_API}/route-stop/ctb/${route}/outbound`),
+        apiFetch(`${CTB_API}/route-stop/ctb/${route}/inbound`)
+      ]);
       const regEntries = (routeRegistry && routeRegistry.get(`CTB:${route}`)) || [];
-      variants = regEntries.map(e => ({ dir: e.dir, serviceType: '1', destTc: e.destTc, destEn: e.destEn }));
-      if (variants.length === 0) variants = ['outbound','inbound'].map(dir => ({ dir, serviceType: '1', destTc: '', destEn: '' }));
+      variants = [];
+      if (outRes.status === 'fulfilled' && (outRes.value.data || []).length > 0) {
+        const reg = regEntries.find(e => e.dir === 'outbound');
+        variants.push({ dir: 'outbound', serviceType: '1', destTc: reg?.destTc || '', destEn: reg?.destEn || '' });
+      }
+      if (inRes.status === 'fulfilled' && (inRes.value.data || []).length > 0) {
+        const reg = regEntries.find(e => e.dir === 'inbound');
+        variants.push({ dir: 'inbound', serviceType: '1', destTc: reg?.destTc || '', destEn: reg?.destEn || '' });
+      }
+      if (variants.length === 0) variants = regEntries.map(e => ({ dir: e.dir, serviceType: '1', destTc: e.destTc, destEn: e.destEn }));
     }
 
     pendingRoute.variants = variants;
