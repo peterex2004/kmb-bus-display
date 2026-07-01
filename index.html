@@ -1040,14 +1040,16 @@ async function ensureRouteList() {
     apiFetch(`${KMB_API}/route/`).then(data => {
       for (const r of (data.data || [])) addEntry('KMB', r.route, r.bound, r.dest_tc, r.dest_en, r.service_type);
     }),
-    // CTB
+    // CTB — route list has no bound field; each entry encodes both directions:
+    //   dest_tc = outbound destination, orig_tc = inbound destination
     apiFetch(`${CTB_API}/route/ctb`).then(data => {
       let added = false;
       for (const r of (data.data || [])) {
-        addEntry('CTB', r.route, r.bound, r.dest_tc, r.dest_en, '1');
+        addEntry('CTB', r.route, 'O', r.dest_tc, r.dest_en, '1');
+        addEntry('CTB', r.route, 'I', r.orig_tc, r.orig_en, '1');
         if (!allRouteNums.has(r.route)) { allRouteNums.add(r.route); added = true; }
       }
-      if (added) { buildPM(); updateNumpad(); } // expand prefix map with CTB routes
+      if (added) { buildPM(); updateNumpad(); }
     })
   ]);
 }
