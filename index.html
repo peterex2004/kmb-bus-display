@@ -444,6 +444,27 @@
     font-size: 0.9rem;
   }
 
+  /* Opposite direction tile */
+  .stop-flip-tile {
+    background: var(--btn-bg);
+    border: 2px dashed var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    touch-action: manipulation;
+    flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent;
+    margin-top: 4px;
+  }
+  .stop-flip-tile:active { background: var(--btn-active); }
+  .stop-flip-arrow { font-size: 1.3rem; color: var(--muted); flex-shrink: 0; }
+  .stop-flip-info { display: flex; flex-direction: column; gap: 1px; flex: 1; }
+  .stop-flip-label { font-size: 0.68rem; color: var(--muted); }
+  .stop-flip-dest { font-size: 0.95rem; color: var(--primary); font-weight: 600; }
+
   /* ════════════════════════════════════════
      SCREEN 3 — DEPARTURE BOARD
   ════════════════════════════════════════ */
@@ -1318,6 +1339,27 @@ function renderStopList() {
     });
 
     listEl.appendChild(div);
+  }
+
+  // Opposite direction tile at bottom
+  const oppVariant = pendingRoute && pendingRoute.variants.find(v => v.dir !== activeEtaDir);
+  if (oppVariant) {
+    const oppDest = oppVariant.destTc || oppVariant.destEn || (oppVariant.dir === 'outbound' ? '去程' : '回程');
+    const flipDiv = document.createElement('div');
+    flipDiv.className = 'stop-flip-tile';
+    flipDiv.innerHTML = `
+      <span class="stop-flip-arrow">↔</span>
+      <div class="stop-flip-info">
+        <span class="stop-flip-label">切換方向</span>
+        <span class="stop-flip-dest">往 ${oppDest}</span>
+      </div>`;
+    flipDiv.addEventListener('click', () => {
+      document.getElementById('dir-tabs').querySelectorAll('.dir-tab').forEach(b => {
+        b.classList.toggle('active', b.dataset.dir === oppVariant.dir);
+      });
+      loadStops(pendingRoute.route, oppVariant.dir);
+    });
+    listEl.appendChild(flipDiv);
   }
 }
 
