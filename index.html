@@ -163,6 +163,31 @@
 
   .rli-dest.inbound { color: var(--muted); }
 
+  .rli-company {
+    font-size: 0.62rem;
+    font-weight: 700;
+    padding: 2px 5px;
+    border-radius: 4px;
+    flex-shrink: 0;
+    letter-spacing: 0.3px;
+    align-self: center;
+  }
+  .rli-kmb { background: var(--primary-dim); color: var(--primary); border: 1px solid var(--primary-border); }
+  .rli-ctb { background: #e8f0fd; color: #1a56db; border: 1px solid #b4c8fa; }
+
+  .board-company {
+    font-size: 0.58rem;
+    font-weight: 700;
+    padding: 1px 4px;
+    border-radius: 3px;
+    vertical-align: middle;
+    margin-left: 4px;
+    position: relative;
+    top: -2px;
+  }
+  .board-kmb { background: var(--primary-dim); color: var(--primary); }
+  .board-ctb { background: #e8f0fd; color: #1a56db; }
+
   /* Numpad — always anchored to bottom, never pushed by list */
   .sel-numpad {
     flex: 0 0 auto;
@@ -775,18 +800,26 @@
 const KMB_ROUTES = ["1","10","101","101R","101X","102","102P","102R","103","104","106","106A","106P","107","107P","108","109","11","110","111","111P","112","113","115","115P","116","117","118","118P","118R","11B","11C","11D","11K","11X","12","12A","12P","13","13D","13M","13P","13X","14","14B","14D","14H","14S","14X","15","15A","15X","16","16M","16P","16X","17","170","171","171A","171P","18","182","182X","19","1A","2","203C","203E","203S","208","21","211","211A","213A","213B","213D","213E","213M","213S","213X","214","214P","215P","215R","215X","216M","219X","224R","224X","23","230R","230X","234A","234B","234C","234D","234P","234X","235","235M","238M","238P","238X","23M","24","240X","241X","242X","243M","243P","248M","249M","249X","251A","251B","251C","251M","252","252B","252S","252X","258A","258D","258P","258S","258X","259B","259C","259D","259E","259R","259S","259X","26","260B","260C","260R","260X","261","261B","261P","261S","261X","263","263A","263B","263C","264R","265B","265M","265P","265S","267X","268","268A","268B","268C","268M","268P","268X","269B","269C","269D","269M","269P","269R","269S","269X","26M","26X","27","270","270A","270B","270C","270D","270E","270P","270R","270S","271","271A","271B","271P","271R","271S","271X","272A","272E","272K","272P","272S","272X","273","273A","273B","273C","273D","273P","273S","274","274P","274X","275R","275X","276","276A","276B","276C","276P","277A","277B","277E","277P","277X","278A","278K","278P","278X","279A","279B","279S","279X","27X","28","280X","281","281A","281B","281E","281X","282","283","284","285","285A","286A","286C","286D","286P","286X","287","287D","287P","287X","288","288A","288B","288C","288D","289K","289R","28B","28S","290","290A","290E","290X","291P","292P","293S","296A","296C","296D","296M","296P","297","297P","298","298E","298F","298X","299X","29M","2A","2B","2D","2E","2F","2P","2X","30","302","302A","307","307A","307P","30X","31","31A","31B","31M","31P","32","32H","32M","32P","33","331","331S","33A","33B","33R","33X","34","34M","35A","35X","36","36A","36B","36M","36R","36X","37","373","37M","37X","38","38A","38B","38P","38S","39A","39M","3B","3C","3D","3M","3S","3X","40","40A","40B","40E","40P","40X","41A","41M","41R","42","42A","42C","42M","43","43A","43B","43C","43D","43M","43P","43S","43X","44","44M","45","46","46P","46R","46S","46X","47A","47X","48P","48X","49","49A","49M","49P","49X","5","51","52P","52X","53","54","57M","58M","58P","58X","59A","59M","59X","5A","5C","5D","5M","5P","5R","6","600","601","601P","603","603A","603P","603S","606","606A","606X","60M","60X","613","613A","619","619P","619X","61A","61M","61P","61X","621","62P","62X","63","63R","63X","641","64K","64P","64S","64X","65K","65X","66M","66X","671","671X","673","673A","673P","678","67A","67M","67X","68","680","680B","680P","680X","681","681P","68A","68E","68F","68M","68R","68X","69","690","690P","690S","69C","69M","69P","69X","6C","6D","6E","6F","6P","6R","7","70K","70S","71A","71B","71K","71P","71S","72","72A","72C","72K","72X","73","73A","73B","73D","73F","73K","73P","73S","73X","74","74A","74B","74C","74D","74E","74F","74K","74P","74R","74S","74X","75K","75P","75X","76","76K","76S","77K","78","78A","78B","78K","78S","79K","7B","7M","8","80","80A","80K","80P","80X","81","81C","81K","81X","82B","82C","82D","82K","82X","83A","83K","83P","83S","83X","848","84M","85","85A","85B","85K","85M","85P","85S","85X","86","868","869","86A","86C","86K","86S","872","872X","87B","87C","87D","87E","87K","87P","87R","87S","88","887","888","889","88K","88X","89","891","893","89B","89C","89D","89P","89S","89X","8A","8P","9","90","900","900X","904","905","905A","905P","907C","907D","91","914","914P","914X","917","918","91B","91M","91P","91R","91S","92","92R","934","934A","935","936","936A","93A","93K","93M","93P","94","945","948","948A","948B","948E","948P","948X","95","95M","96","960","960A","960B","960C","960P","960S","960X","961","961P","961S","968","968A","968X","96R","97","978","978A","978B","98","980A","980X","981P","982X","985","985A","985B","98A","98B","98C","98D","98E","98P","98R","98S","99","99R","A30","A31","A32","A33","A33X","A34","A36","A37","A38","A41","A41P","A42","A43","A43P","A46","A47X","B1","B9","B9A","E31","E32","E32A","E33","E33P","E36","E36A","E36C","E36P","E36S","E37","E37C","E41","E42","E42C","E42P","E43","HK1","HK2","N116","N118","N121","N122","N170","N171","N182","N213","N214","N216","N237","N241","N243","N252","N260","N269","N271","N276","N281","N283","N287","N290","N293","N30","N307","N31","N36","N368","N373","N39","N3D","N41X","N42","N42A","N43","N48","N619","N64","N680","N691","N73","N78","N960","NA30","NA31","NA32","NA33","NA36","NA37","NA40","NA41","NA43","NA47","NA52","P960","P968","PB1","PB2","PB3","PB4","PB5","R108","R215","R230","R241","R298","R33","R42","R603","R78","R8","R934","R936","R948","S1","S64","S64C","S64P","S64X","SP1","SP10","SP12","SP3","SP5A","SP6","SP7","T270","T277","T74","T80","W2","W3","W4","X1","X33","X36","X40","X42C","X42P","X43","X47","X6C","X89D","X90"];
 
 // ═══════════════════════════════════════════════════════════
-// PREFIX MAP
+// PREFIX MAP  (rebuilt when CTB routes arrive)
 // ═══════════════════════════════════════════════════════════
-const PM = new Map();
-for (const r of KMB_ROUTES) {
-  for (let i = 0; i <= r.length; i++) {
-    const p = r.slice(0, i);
-    if (!PM.has(p)) PM.set(p, new Set());
-    if (i < r.length) PM.get(p).add(r[i]);
+const KMB_ROUTE_SET = new Set(KMB_ROUTES);
+const allRouteNums  = new Set(KMB_ROUTES); // grows after CTB fetch
+
+let PM = new Map();
+function buildPM() {
+  PM = new Map();
+  for (const r of allRouteNums) {
+    for (let i = 0; i <= r.length; i++) {
+      const p = r.slice(0, i);
+      if (!PM.has(p)) PM.set(p, new Set());
+      if (i < r.length) PM.get(p).add(r[i]);
+    }
   }
 }
+buildPM();
+
 const validNext = p => PM.get(p) || new Set();
-const isRoute   = s => s.length > 0 && KMB_ROUTES.includes(s);
+const isRoute   = s => s.length > 0 && allRouteNums.has(s);
 
 // ═══════════════════════════════════════════════════════════
 // MOCK MODE
@@ -884,27 +917,31 @@ async function mockFetch(url) {
 // ═══════════════════════════════════════════════════════════
 // STATE
 // ═══════════════════════════════════════════════════════════
-const API = 'https://data.etabus.gov.hk/v1/transport/kmb';
+const KMB_API = 'https://data.etabus.gov.hk/v1/transport/kmb';
+const CTB_API = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb';
 
 let typed = '';
 let board = [];
-let stopCache = null;
-let routeListCache = null;
-let pendingRoute = null;
+let stopCache    = null;           // KMB bulk stop cache Map<stopId,{name_tc,name_en}>
+let ctbStopCache = new Map();      // CTB individual stop cache
+// routeRegistry: Map<`${company}:${route}`, [{dir,destTc,destEn,serviceType}]>
+let routeRegistry = null;
+let pendingRoute = null;           // {route, company, variants:[]}
 let pendingDir   = null;
-let stopScreenOrigin = 'sel'; // 'sel' | 'board'
+let stopScreenOrigin = 'sel';      // 'sel' | 'board'
 let editMode     = false;
 let refreshTimer = null;
 
 // Stop screen ETA state
-let currentStopList = [];   // [{stop, seq, name_tc, name_en}]
-let stopETAs = new Map();   // stopId → minutes[]
-let expandedStopId = null;
-let activeEtaRoute = null;
-let activeEtaDir   = null;
-let activeEtaStype = null;
-let activeEtaDestTc = null;
-let etaFetchToken  = 0;     // incremented on each new fetch to cancel stale results
+let currentStopList  = [];
+let stopETAs         = new Map();
+let expandedStopId   = null;
+let activeEtaRoute   = null;
+let activeEtaCompany = null;
+let activeEtaDir     = null;
+let activeEtaStype   = null;
+let activeEtaDestTc  = null;
+let etaFetchToken    = 0;
 
 // ═══════════════════════════════════════════════════════════
 // HELPERS
@@ -918,7 +955,10 @@ function cleanName(name) {
 // PERSISTENCE
 // ═══════════════════════════════════════════════════════════
 function loadBoard() {
-  try { board = JSON.parse(localStorage.getItem('kmb_board') || '[]'); }
+  try {
+    board = JSON.parse(localStorage.getItem('kmb_board') || '[]');
+    board = board.map(b => ({ company: 'KMB', ...b })); // backfill v1.x items
+  }
   catch { board = []; }
 }
 
@@ -961,20 +1001,34 @@ function showScreen(id) {
 // SCREEN 1 — SELECTION
 // ═══════════════════════════════════════════════════════════
 async function ensureRouteList() {
-  if (routeListCache) return;
-  routeListCache = new Map();
-  try {
-    const data = await apiFetch(`${API}/route/`);
-    for (const r of (data.data || [])) {
-      if (!routeListCache.has(r.route)) routeListCache.set(r.route, []);
-      const existing = routeListCache.get(r.route);
-      const dir = r.bound === 'O' ? 'outbound' : 'inbound';
-      // Deduplicate by direction — keep only first entry per direction
-      if (!existing.find(e => e.dir === dir)) {
-        existing.push({ dir, destTc: r.dest_tc, destEn: r.dest_en });
-      }
+  if (routeRegistry) return;
+  routeRegistry = new Map();
+
+  const addEntry = (company, route, bound, destTc, destEn, serviceType) => {
+    const key = `${company}:${route}`;
+    if (!routeRegistry.has(key)) routeRegistry.set(key, []);
+    const existing = routeRegistry.get(key);
+    const dir = bound === 'O' ? 'outbound' : 'inbound';
+    if (!existing.find(e => e.dir === dir)) {
+      existing.push({ dir, destTc, destEn, serviceType: serviceType || '1' });
     }
-  } catch(e) { /* show routes without destinations */ }
+  };
+
+  await Promise.allSettled([
+    // KMB
+    apiFetch(`${KMB_API}/route/`).then(data => {
+      for (const r of (data.data || [])) addEntry('KMB', r.route, r.bound, r.dest_tc, r.dest_en, r.service_type);
+    }),
+    // CTB
+    apiFetch(`${CTB_API}/route/ctb`).then(data => {
+      let added = false;
+      for (const r of (data.data || [])) {
+        addEntry('CTB', r.route, r.bound, r.dest_tc, r.dest_en, '1');
+        if (!allRouteNums.has(r.route)) { allRouteNums.add(r.route); added = true; }
+      }
+      if (added) { buildPM(); updateNumpad(); } // expand prefix map with CTB routes
+    })
+  ]);
 }
 
 function renderSelScreen() {
@@ -1019,34 +1073,37 @@ function updateMatchList() {
   const matchesEl = document.getElementById('route-matches');
   matchesEl.innerHTML = '';
 
-  const matches = typed.length > 0
-    ? KMB_ROUTES.filter(r => r.startsWith(typed)).sort()
-    : KMB_ROUTES.slice().sort();
-
-  if (!routeListCache) {
+  if (!routeRegistry) {
     matchesEl.innerHTML = '<div class="rli-loading">載入路線資料中… <span class="spinner"></span></div>';
     return;
   }
 
-  for (const r of matches) {
-    const dests = routeListCache.get(r) || [];
-    const row = document.createElement('div');
-    row.className = 'rli';
-    row.dataset.route = r;
+  const matchNums = typed.length > 0
+    ? [...allRouteNums].filter(r => r.startsWith(typed)).sort()
+    : [...allRouteNums].sort();
 
-    const destHtml = dests.length > 0
-      ? dests.map(d => `<span class="rli-dest ${d.dir === 'inbound' ? 'inbound' : ''}">往 ${d.destTc || d.destEn || ''}</span>`).join('')
-      : '<span class="rli-dest" style="color:var(--muted)">—</span>';
+  for (const rNum of matchNums) {
+    for (const company of ['KMB', 'CTB']) {
+      const key = `${company}:${rNum}`;
+      if (!routeRegistry.has(key)) continue;
+      const dests = routeRegistry.get(key);
 
-    row.innerHTML = `<span class="rli-num">${r}</span><div class="rli-dests">${destHtml}</div>`;
-    row.addEventListener('click', () => {
-      typed = r;
-      updateNumpad();
-      stopRefresh();
-      stopScreenOrigin = 'sel';
-      openStopScreen(r);
-    });
-    matchesEl.appendChild(row);
+      const destHtml = dests.length > 0
+        ? dests.map(d => `<span class="rli-dest ${d.dir === 'inbound' ? 'inbound' : ''}">往 ${d.destTc || d.destEn || ''}</span>`).join('')
+        : '<span class="rli-dest" style="color:var(--muted)">—</span>';
+
+      const row = document.createElement('div');
+      row.className = 'rli';
+      row.innerHTML = `<span class="rli-num">${rNum}</span><span class="rli-company rli-${company.toLowerCase()}">${company}</span><div class="rli-dests">${destHtml}</div>`;
+      row.addEventListener('click', () => {
+        typed = rNum;
+        updateNumpad();
+        stopRefresh();
+        stopScreenOrigin = 'sel';
+        openStopScreen(rNum, company);
+      });
+      matchesEl.appendChild(row);
+    }
   }
 }
 
@@ -1065,32 +1122,39 @@ function pressKey(k) {
 // ═══════════════════════════════════════════════════════════
 // SCREEN 2 — STOP PICKER
 // ═══════════════════════════════════════════════════════════
-async function openStopScreen(route, preselectDir = null) {
-  pendingRoute = { route, variants: [] };
+async function openStopScreen(route, company = 'KMB', preselectDir = null) {
+  pendingRoute = { route, company, variants: [] };
   pendingDir = null;
   document.getElementById('stop-route-label').textContent = route;
   document.getElementById('stop-list').innerHTML = '<div class="stop-loading">載入中… <span class="spinner"></span></div>';
   showScreen('stop-screen');
 
   try {
-    const combos = [['outbound','1'],['inbound','1'],['outbound','2'],['inbound','2']];
-    const results = await Promise.allSettled(
-      combos.map(([d, st]) => apiFetch(`${API}/route/${route}/${d}/${st}`))
-    );
-    const variants = results
-      .filter(r => r.status === 'fulfilled' && r.value.data)
-      .map(r => r.value.data)
-      .filter(v => v && v.route)
-      .map(v => ({
-        dir: v.bound === 'O' ? 'outbound' : 'inbound',
-        serviceType: v.service_type,
-        origTc: v.orig_tc,
-        origEn: v.orig_en,
-        destTc: v.dest_tc,
-        destEn: v.dest_en
-      }))
-      // Deduplicate by dir (keep first per direction)
-      .filter((v, _, arr) => arr.findIndex(x => x.dir === v.dir) === arr.indexOf(v));
+    let variants = [];
+
+    if (company === 'KMB') {
+      const combos = [['outbound','1'],['inbound','1'],['outbound','2'],['inbound','2']];
+      const results = await Promise.allSettled(
+        combos.map(([d, st]) => apiFetch(`${KMB_API}/route/${route}/${d}/${st}`))
+      );
+      variants = results
+        .filter(r => r.status === 'fulfilled' && r.value.data)
+        .map(r => r.value.data)
+        .filter(v => v && v.route)
+        .map(v => ({
+          dir: v.bound === 'O' ? 'outbound' : 'inbound',
+          serviceType: v.service_type,
+          destTc: v.dest_tc,
+          destEn: v.dest_en
+        }))
+        .filter((v, _, arr) => arr.findIndex(x => x.dir === v.dir) === arr.indexOf(v));
+    } else {
+      // CTB: use routeRegistry (already has directions + destinations)
+      const regEntries = (routeRegistry && routeRegistry.get(`CTB:${route}`)) || [];
+      variants = regEntries.map(e => ({ dir: e.dir, serviceType: '1', destTc: e.destTc, destEn: e.destEn }));
+      if (variants.length === 0) variants = ['outbound','inbound'].map(dir => ({ dir, serviceType: '1', destTc: '', destEn: '' }));
+    }
+
     pendingRoute.variants = variants;
 
     const tabsEl = document.getElementById('dir-tabs');
@@ -1098,7 +1162,7 @@ async function openStopScreen(route, preselectDir = null) {
     const dirs = [...new Set(variants.map(v => v.dir))];
     const initialDir = preselectDir && dirs.includes(preselectDir) ? preselectDir : dirs[0];
 
-    dirs.forEach((dir) => {
+    dirs.forEach(dir => {
       const v = variants.find(x => x.dir === dir);
       const label = '往 ' + (v.destTc || v.destEn || dir);
       const btn = document.createElement('button');
@@ -1123,7 +1187,7 @@ async function openStopScreen(route, preselectDir = null) {
 
 async function ensureStopCache() {
   if (stopCache) return;
-  const data = await apiFetch(`${API}/stop`);
+  const data = await apiFetch(`${KMB_API}/stop`);
   stopCache = new Map();
   for (const s of (data.data || [])) {
     stopCache.set(s.stop, { name_tc: s.name_tc, name_en: s.name_en });
@@ -1131,11 +1195,13 @@ async function ensureStopCache() {
 }
 
 async function loadStops(route, dir) {
+  const company = pendingRoute.company;
   pendingDir = dir;
-  expandedStopId = null;
-  stopETAs = new Map();
-  activeEtaRoute  = route;
-  activeEtaDir    = dir;
+  expandedStopId   = null;
+  stopETAs         = new Map();
+  activeEtaRoute   = route;
+  activeEtaCompany = company;
+  activeEtaDir     = dir;
   const variant = pendingRoute.variants.find(v => v.dir === dir) || { serviceType: '1', destTc: '', destEn: '' };
   activeEtaStype  = variant.serviceType;
   activeEtaDestTc = variant.destTc || variant.destEn || '';
@@ -1144,24 +1210,40 @@ async function loadStops(route, dir) {
   listEl.innerHTML = '<div class="stop-loading">載入站點中… <span class="spinner"></span></div>';
 
   try {
-    const [stopsData] = await Promise.all([
-      apiFetch(`${API}/route-stop/${route}/${dir}/${variant.serviceType}`),
-      ensureStopCache()
-    ]);
-
-    const stops = stopsData.data || [];
-    if (stops.length === 0) {
-      listEl.innerHTML = '<div class="stop-loading">此方向暫無站點資料</div>';
-      return;
+    if (company === 'KMB') {
+      const [stopsData] = await Promise.all([
+        apiFetch(`${KMB_API}/route-stop/${route}/${dir}/${variant.serviceType}`),
+        ensureStopCache()
+      ]);
+      const stops = stopsData.data || [];
+      if (stops.length === 0) { listEl.innerHTML = '<div class="stop-loading">此方向暫無站點資料</div>'; return; }
+      currentStopList = stops.map(s => {
+        const raw = stopCache.get(s.stop) || { name_tc: s.stop, name_en: '' };
+        return { stop: s.stop, seq: s.seq, name_tc: cleanName(raw.name_tc), name_en: cleanName(raw.name_en) };
+      });
+    } else {
+      // CTB — route-stop then fetch each stop name individually
+      const stopsData = await apiFetch(`${CTB_API}/route-stop/ctb/${route}/${dir}`);
+      const stops = stopsData.data || [];
+      if (stops.length === 0) { listEl.innerHTML = '<div class="stop-loading">此方向暫無站點資料</div>'; return; }
+      const nameResults = await Promise.allSettled(
+        stops.map(s => {
+          if (ctbStopCache.has(s.stop)) return Promise.resolve(ctbStopCache.get(s.stop));
+          return apiFetch(`${CTB_API}/stop/${s.stop}`).then(d => {
+            const info = { name_tc: d.data?.name_tc || s.stop, name_en: d.data?.name_en || '' };
+            ctbStopCache.set(s.stop, info);
+            return info;
+          });
+        })
+      );
+      currentStopList = stops.map((s, i) => {
+        const raw = nameResults[i].status === 'fulfilled' ? nameResults[i].value : { name_tc: s.stop, name_en: '' };
+        return { stop: s.stop, seq: s.seq, name_tc: cleanName(raw.name_tc), name_en: cleanName(raw.name_en) };
+      });
     }
 
-    currentStopList = stops.map(s => {
-      const raw = stopCache.get(s.stop) || { name_tc: s.stop, name_en: '' };
-      return { stop: s.stop, seq: s.seq, name_tc: cleanName(raw.name_tc), name_en: cleanName(raw.name_en) };
-    });
-
     renderStopList();
-    fetchAllStopETAs(); // background — auto-expands nearest stop when done
+    fetchAllStopETAs();
   } catch (e) {
     listEl.innerHTML = '<div class="stop-loading" style="color:var(--red)">載入失敗，請檢查網絡</div>';
   }
@@ -1232,7 +1314,7 @@ function renderStopList() {
 
     div.querySelector('.stop-star').addEventListener('click', e => {
       e.stopPropagation();
-      addBoardItem(activeEtaRoute, activeEtaDir, activeEtaStype, s.stop, +s.seq, s.name_tc, activeEtaDestTc, true);
+      addBoardItem(activeEtaRoute, activeEtaCompany, activeEtaDir, activeEtaStype, s.stop, +s.seq, s.name_tc, activeEtaDestTc, true);
     });
 
     listEl.appendChild(div);
@@ -1240,23 +1322,27 @@ function renderStopList() {
 }
 
 async function fetchAllStopETAs() {
-  const token = ++etaFetchToken;
-  const route = activeEtaRoute;
-  const dir   = activeEtaDir;
-  const stype = activeEtaStype;
+  const token   = ++etaFetchToken;
+  const route   = activeEtaRoute;
+  const company = activeEtaCompany;
+  const dir     = activeEtaDir;
+  const stype   = activeEtaStype;
   const dirCode = dir === 'outbound' ? 'O' : 'I';
 
   const results = await Promise.allSettled(
-    currentStopList.map((s, i) =>
-      apiFetch(`${API}/eta/${s.stop}/${route}/${stype}`).then(data => {
+    currentStopList.map(s => {
+      const url = company === 'CTB'
+        ? `${CTB_API}/eta/ctb/${s.stop}/${route}`
+        : `${KMB_API}/eta/${s.stop}/${route}/${stype}`;
+      return apiFetch(url).then(data => {
         const now = Date.now();
         const etas = (data.data || [])
           .filter(r => r.dir === dirCode && r.eta)
           .slice(0, 3)
           .map(r => Math.round((new Date(r.eta).getTime() - now) / 60000));
         return { stopId: s.stop, etas };
-      })
-    )
+      });
+    })
   );
 
   if (token !== etaFetchToken) return; // stale — direction changed
@@ -1292,10 +1378,10 @@ async function fetchAllStopETAs() {
   }
 }
 
-function addBoardItem(route, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
-  const dup = board.find(b => b.route === route && b.dir === dir && b.stopId === stopId);
+function addBoardItem(route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
+  const dup = board.find(b => b.route === route && b.company === company && b.dir === dir && b.stopId === stopId);
   if (!dup) {
-    board.push({ route, dir, serviceType, stopId, stopSeq, stopName, destTc, starred });
+    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred });
     saveBoard();
   } else if (starred && !dup.starred) {
     dup.starred = true;
@@ -1329,6 +1415,7 @@ function renderBoard() {
     <div class="board-card${item.starred ? ' starred-card' : ''}" data-idx="${i}">
       <div class="board-card-top">
         <span class="board-route">${item.route}</span>
+        <span class="board-company board-${(item.company||'KMB').toLowerCase()}">${item.company||'KMB'}</span>
         <span class="board-dest">往 ${item.destTc || '—'}</span>
       </div>
       <div class="board-card-stop">${item.stopName} &bull; 第 ${item.stopSeq} 站</div>
@@ -1347,7 +1434,7 @@ function renderBoard() {
       const item = board[i];
       stopRefresh();
       stopScreenOrigin = 'board';
-      openStopScreen(item.route, item.dir);
+      openStopScreen(item.route, item.company || 'KMB', item.dir);
     });
   });
 
@@ -1385,7 +1472,10 @@ async function fetchETA(idx) {
   if (!etasEl) return;
 
   try {
-    const data = await apiFetch(`${API}/eta/${item.stopId}/${item.route}/${item.serviceType}`);
+    const url = (item.company || 'KMB') === 'CTB'
+      ? `${CTB_API}/eta/ctb/${item.stopId}/${item.route}`
+      : `${KMB_API}/eta/${item.stopId}/${item.route}/${item.serviceType}`;
+    const data = await apiFetch(url);
     const dirCode = item.dir === 'outbound' ? 'O' : 'I';
     const rows = (data.data || []).filter(r => r.dir === dirCode && r.eta);
 
@@ -1433,7 +1523,8 @@ document.getElementById('btn-add-route').addEventListener('click', () => {
   if (!isRoute(typed)) return;
   stopRefresh();
   stopScreenOrigin = 'sel';
-  openStopScreen(typed);
+  const company = KMB_ROUTE_SET.has(typed) ? 'KMB' : 'CTB';
+  openStopScreen(typed, company);
 });
 
 document.getElementById('btn-goto-board').addEventListener('click', showBoardScreen);
