@@ -200,6 +200,36 @@
     letter-spacing: 1px;
   }
 
+  .sel-header-btns { display: flex; align-items: center; gap: 8px; }
+
+  #btn-goto-nearby {
+    font-size: 1.05rem;
+    padding: 5px 10px;
+    background: none;
+    color: var(--text);
+    border: 1px solid var(--primary-border);
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    touch-action: manipulation;
+    line-height: 1;
+  }
+  #btn-goto-nearby:active { background: var(--btn-active); }
+
+  #btn-board-nearby {
+    background: none;
+    border: 1px solid var(--primary-border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 0.95rem;
+    cursor: pointer;
+    font-family: inherit;
+    line-height: 1;
+    touch-action: manipulation;
+  }
+  #btn-board-nearby:active { background: var(--btn-active); }
+
   #btn-goto-board {
     font-size: 0.8rem;
     padding: 7px 16px;
@@ -487,7 +517,7 @@
     font-weight: 600;
   }
 
-  #stop-list {
+  #stop-list, #nearby-list {
     flex: 1 1 0;
     overflow-y: auto;
     padding: 8px;
@@ -495,6 +525,44 @@
     flex-direction: column;
     gap: 5px;
   }
+
+  .stop-distance {
+    font-size: 0.72rem;
+    color: var(--green);
+    min-width: 54px;
+    text-align: right;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .nearby-route-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .nearby-route-row:last-child { border-bottom: none; }
+  .nearby-route-num { font-weight: 700; color: var(--primary); min-width: 42px; font-size: 0.85rem; flex-shrink: 0; }
+  .nearby-route-dest {
+    flex: 1; font-size: 0.78rem; color: var(--text);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .nearby-add-btn {
+    background: none;
+    border: 1px solid var(--green-border);
+    color: var(--green);
+    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    font-size: 1.05rem;
+    cursor: pointer;
+    flex-shrink: 0;
+    touch-action: manipulation;
+    font-family: inherit;
+  }
+  .nearby-add-btn:active { background: var(--green-bg); }
+  .nearby-add-btn.added { border-color: var(--border); color: var(--muted); cursor: default; }
 
   .stop-item {
     background: var(--card-bg);
@@ -811,6 +879,38 @@
 
   #offline-banner.show { display: block; }
 
+  /* ── Weather / service alert banner ── */
+  #weather-banner {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+    background: var(--orange);
+    color: #241505;
+    z-index: 998;
+  }
+  #weather-banner.show { display: block; }
+  #weather-banner-text {
+    display: block;
+    text-align: center;
+    padding: 8px 44px;
+    font-size: 0.78rem;
+    font-weight: 700;
+  }
+  #weather-banner-close {
+    position: absolute;
+    right: 8px;
+    top: calc(50% + env(safe-area-inset-top, 0px) / 2);
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: inherit;
+    font-size: 1rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    touch-action: manipulation;
+  }
+
   /* ── Spinner ── */
   .spinner {
     display: inline-block;
@@ -893,7 +993,7 @@
       gap: 12px;
       padding: 16px;
     }
-    #stop-list { max-width: 900px; margin-inline: auto; width: 100%; }
+    #stop-list, #nearby-list { max-width: 900px; margin-inline: auto; width: 100%; }
     .sel-input-area,
     #route-matches,
     .sel-numpad { max-width: 480px; margin-inline: auto; width: 100%; }
@@ -975,7 +1075,7 @@
       <span class="intro-badge intro-badge-kmb">KMB 九巴</span>
       <span class="intro-badge intro-badge-ctb">CTB 城巴</span>
     </div>
-    <div class="intro-version">v1.4</div>
+    <div class="intro-version">v1.5</div>
     <button type="button" id="btn-enter-app">開始使用 · Enter App →</button>
     <div class="intro-footer">
       資料來源：香港政府公共交通API<br>
@@ -988,7 +1088,10 @@
 <div id="sel-screen" class="screen">
   <div class="sel-header">
     <h1>九巴 ● 路線搜尋 <span style="font-size:0.65rem;color:var(--muted);font-weight:400">Route Search</span></h1>
-    <button type="button" id="btn-goto-board">班次板 ▶</button>
+    <div class="sel-header-btns">
+      <button type="button" id="btn-goto-nearby" title="附近站點 · Nearby stops">📍</button>
+      <button type="button" id="btn-goto-board">班次板 ▶</button>
+    </div>
   </div>
 
   <div class="sel-input-area">
@@ -1036,12 +1139,27 @@
   <div id="stop-list"></div>
 </div>
 
+<!-- ════════ SCREEN: 附近站點 NEARBY ════════ -->
+<div id="nearby-screen" class="screen">
+  <div class="stop-header">
+    <div class="stop-header-top">
+      <div class="stop-header-top-left">
+        <button type="button" id="nearby-back">← 返回</button>
+        <span>📍 附近站點 Nearby</span>
+      </div>
+    </div>
+    <div class="stop-dir-hint">只支援九巴站點 · KMB stops only, powered by GPS</div>
+  </div>
+  <div id="nearby-list"></div>
+</div>
+
 <!-- ════════ SCREEN 3: 班次顯示板 ════════ -->
 <div id="disp-screen" class="screen">
   <div class="board-header">
     <span class="board-title">● 九巴班次 <span style="font-size:0.6rem;color:var(--muted);font-weight:400">Bus Arrivals</span></span>
     <div class="board-header-btns">
       <span id="last-update"></span>
+      <button type="button" id="btn-board-nearby" title="附近站點 · Nearby stops">📍</button>
       <button type="button" id="btn-board-share" title="分享班次板 · Share board">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
@@ -1062,6 +1180,12 @@
 
 <!-- 離線提示 -->
 <div id="offline-banner">⚠ 服務暫停 — 網絡中斷</div>
+
+<!-- 天氣特別警告 -->
+<div id="weather-banner">
+  <span id="weather-banner-text"></span>
+  <button type="button" id="weather-banner-close" title="關閉">✕</button>
+</div>
 
 <!-- Toast -->
 <div id="toast"></div>
@@ -1216,6 +1340,11 @@ let activeEtaStype   = null;
 let activeEtaDestTc  = null;
 let etaFetchToken    = 0;
 
+// Nearby stops (feature #1 — Phase 2)
+let nearbyStopsData  = [];        // [{stop, name_tc, name_en, dist}]
+let nearbyExpanded   = null;
+let nearbyRoutesCache = new Map(); // stopId -> [{route,dir,serviceType,destTc,destEn,seq,etas}]
+
 // ═══════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════
@@ -1249,16 +1378,25 @@ function setOffline(v) {
 window.addEventListener('online',  () => setOffline(false));
 window.addEventListener('offline', () => setOffline(true));
 
-async function apiFetch(url) {
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Retries transient failures with exponential backoff (500ms, 1500ms) before
+// giving up — keeps a 24/7 display resilient to brief network blips.
+async function apiFetch(url, retries = 2) {
   if (MOCK_MODE) return mockFetch(url);
-  try {
-    const r = await fetch(url);
-    if (!r.ok) throw new Error(r.status);
-    setOffline(false);
-    return await r.json();
-  } catch (e) {
-    if (!navigator.onLine) setOffline(true);
-    throw e;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(r.status);
+      setOffline(false);
+      return await r.json();
+    } catch (e) {
+      if (attempt === retries) {
+        if (!navigator.onLine) setOffline(true);
+        throw e;
+      }
+      await sleep(500 * Math.pow(3, attempt));
+    }
   }
 }
 
@@ -1477,7 +1615,7 @@ async function ensureStopCache() {
   const data = await apiFetch(`${KMB_API}/stop`);
   stopCache = new Map();
   for (const s of (data.data || [])) {
-    stopCache.set(s.stop, { name_tc: s.name_tc, name_en: s.name_en });
+    stopCache.set(s.stop, { name_tc: s.name_tc, name_en: s.name_en, lat: +s.lat, long: +s.long });
   }
 }
 
@@ -1686,6 +1824,198 @@ async function fetchAllStopETAs() {
   }
 }
 
+// ═══════════════════════════════════════════════════════════
+// NEARBY STOPS  (feature #1 — Phase 2, KMB only for now)
+// ═══════════════════════════════════════════════════════════
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat / 2) ** 2 +
+            Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function formatDistance(m) {
+  return m < 1000 ? `${Math.round(m)} 米` : `${(m / 1000).toFixed(1)} 公里`;
+}
+
+function openNearbyScreen() {
+  stopRefresh();
+  showScreen('nearby-screen');
+  const listEl = document.getElementById('nearby-list');
+  listEl.innerHTML = '<div class="stop-loading">正在定位… Locating <span class="spinner"></span></div>';
+
+  if (!('geolocation' in navigator)) {
+    listEl.innerHTML = '<div class="stop-loading" style="color:var(--red)">此裝置不支援定位<br>Geolocation not supported</div>';
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(async pos => {
+    try {
+      await ensureStopCache();
+      const { latitude, longitude } = pos.coords;
+      const all = [];
+      for (const [stopId, info] of stopCache) {
+        if (!info.lat || !info.long) continue;
+        all.push({
+          stop: stopId,
+          name_tc: cleanName(info.name_tc),
+          name_en: cleanName(info.name_en),
+          dist: haversineMeters(latitude, longitude, info.lat, info.long)
+        });
+      }
+      all.sort((a, b) => a.dist - b.dist);
+      nearbyStopsData = all.slice(0, 20);
+      nearbyExpanded = null;
+      renderNearbyList();
+    } catch (e) {
+      listEl.innerHTML = '<div class="stop-loading" style="color:var(--red)">載入站點資料失敗<br>Failed to load stop data</div>';
+    }
+  }, err => {
+    const msg = err.code === err.PERMISSION_DENIED
+      ? '定位權限被拒絕，請在瀏覽器設定中允許<br>Location permission denied — allow it in browser settings'
+      : '無法取得您的位置<br>Unable to get your location';
+    listEl.innerHTML = `<div class="stop-loading" style="color:var(--red)">${msg}</div>`;
+  }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+}
+
+function renderNearbyList() {
+  const listEl = document.getElementById('nearby-list');
+  if (nearbyStopsData.length === 0) {
+    listEl.innerHTML = '<div class="stop-loading">附近未找到九巴站點<br>No nearby KMB stops found</div>';
+    return;
+  }
+
+  listEl.innerHTML = nearbyStopsData.map(s => `
+    <div class="stop-item${nearbyExpanded === s.stop ? ' stop-expanded' : ''}" data-stop-id="${s.stop}">
+      <div class="stop-item-row">
+        <span class="stop-distance">${formatDistance(s.dist)}</span>
+        <div class="stop-names">
+          <div class="stop-name-tc">${s.name_tc}</div>
+          <div class="stop-name-en">${s.name_en}</div>
+        </div>
+      </div>
+      <div class="stop-eta-detail" id="nearby-detail-${s.stop}"
+           style="display:${nearbyExpanded === s.stop ? 'flex' : 'none'}; flex-direction:column;">
+        ${nearbyExpanded === s.stop ? '<div class="stop-loading" style="padding:12px">載入班次中… <span class="spinner"></span></div>' : ''}
+      </div>
+    </div>
+  `).join('');
+
+  listEl.querySelectorAll('.stop-item').forEach(div => {
+    div.querySelector('.stop-item-row').addEventListener('click', () => {
+      const stopId = div.dataset.stopId;
+      if (nearbyExpanded === stopId) { nearbyExpanded = null; renderNearbyList(); return; }
+      nearbyExpanded = stopId;
+      renderNearbyList();
+      loadNearbyRoutes(stopId);
+    });
+  });
+}
+
+async function loadNearbyRoutes(stopId) {
+  const detailEl = document.getElementById(`nearby-detail-${stopId}`);
+  if (!detailEl) return;
+
+  try {
+    let routes = nearbyRoutesCache.get(stopId);
+    if (!routes) {
+      const data = await apiFetch(`${KMB_API}/stop-eta/${stopId}`);
+      const rows = (data.data || []).filter(r => r.route);
+      const map = new Map();
+      for (const r of rows) {
+        const key = `${r.route}:${r.dir}`;
+        if (!map.has(key)) {
+          map.set(key, {
+            route: r.route, dir: r.dir, serviceType: String(r.service_type),
+            destTc: r.dest_tc, destEn: r.dest_en, seq: r.seq, etas: []
+          });
+        }
+        if (r.eta) map.get(key).etas.push(r.eta);
+      }
+      routes = [...map.values()].sort((a, b) => a.route.localeCompare(b.route, undefined, { numeric: true }));
+      nearbyRoutesCache.set(stopId, routes);
+    }
+
+    if (nearbyExpanded !== stopId) return; // user navigated away before this resolved
+
+    if (routes.length === 0) {
+      detailEl.innerHTML = '<div class="stop-loading" style="padding:12px">此站暫無班次資料 · No ETA data</div>';
+      return;
+    }
+
+    const now = Date.now();
+    detailEl.innerHTML = routes.map(r => {
+      const dirLabel = r.dir === 'O' ? 'outbound' : 'inbound';
+      const already = board.some(b => b.route === r.route && b.company === 'KMB' && b.dir === dirLabel && b.stopId === stopId);
+      let etaHtml = '<span class="eta-pill no-data">暫無班次</span>';
+      if (r.etas.length > 0) {
+        const mins = Math.round((new Date(r.etas[0]).getTime() - now) / 60000);
+        if (mins <= 0) etaHtml = '<span class="eta-pill now">即將抵達</span>';
+        else if (mins <= 3) etaHtml = `<span class="eta-pill soon">${mins} 分鐘</span>`;
+        else etaHtml = `<span class="eta-pill">${mins} 分鐘</span>`;
+      }
+      return `
+        <div class="nearby-route-row">
+          <span class="nearby-route-num">${r.route}</span>
+          <span class="nearby-route-dest">往 ${r.destTc || r.destEn || ''}</span>
+          ${etaHtml}
+          <button type="button" class="nearby-add-btn${already ? ' added' : ''}"
+            data-route="${r.route}" data-dir="${dirLabel}" data-stype="${r.serviceType}"
+            data-stop="${stopId}" data-seq="${r.seq}" data-dest="${(r.destTc || '').replace(/"/g, '&quot;')}"
+            title="${already ? '已在班次板 · Already on board' : '加入班次板 · Add to board'}">${already ? '✓' : '＋'}</button>
+        </div>`;
+    }).join('');
+
+    detailEl.querySelectorAll('.nearby-add-btn').forEach(btn => {
+      btn.addEventListener('click', e => {
+        e.stopPropagation();
+        if (btn.classList.contains('added')) return;
+        const stopInfo = nearbyStopsData.find(s => s.stop === btn.dataset.stop);
+        addBoardItem(
+          btn.dataset.route, 'KMB', btn.dataset.dir, btn.dataset.stype,
+          btn.dataset.stop, btn.dataset.seq, stopInfo ? stopInfo.name_tc : btn.dataset.stop,
+          btn.dataset.dest, false
+        );
+      });
+    });
+  } catch (e) {
+    detailEl.innerHTML = '<div class="stop-loading" style="padding:12px;color:var(--red)">載入失敗 · Failed to load</div>';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SERVICE ALERTS  (feature B — Phase 2, HKO weather warnings)
+// ═══════════════════════════════════════════════════════════
+const weatherDismissed = new Set();
+
+async function checkWeatherAlerts() {
+  try {
+    const r = await fetch('https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=tc');
+    if (!r.ok) return;
+    const data = await r.json();
+
+    const msgs = Array.isArray(data.warningMessage) ? data.warningMessage.filter(Boolean) : [];
+    const extra = [];
+    for (const [k, v] of Object.entries(data)) {
+      if (k === 'warningMessage') continue;
+      if (v && typeof v === 'object' && v.name) extra.push(v.name);
+    }
+    const all = [...new Set([...msgs, ...extra])].filter(m => !weatherDismissed.has(m));
+
+    const banner = document.getElementById('weather-banner');
+    if (all.length > 0) {
+      document.getElementById('weather-banner-text').textContent = '⚠ ' + all.join(' · ') + ' — 部分巴士服務可能受影響';
+      banner.dataset.msgs = JSON.stringify(all);
+      banner.classList.add('show');
+    } else {
+      banner.classList.remove('show');
+    }
+  } catch (e) { /* non-critical — fail silently, never block the board */ }
+}
+
 function addBoardItem(route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
   const dup = board.find(b => b.route === route && b.company === company && b.dir === dir && b.stopId === stopId);
   if (!dup) {
@@ -1861,6 +2191,27 @@ document.getElementById('btn-add-route').addEventListener('click', () => {
 
 document.getElementById('btn-goto-board').addEventListener('click', showBoardScreen);
 
+document.getElementById('btn-goto-nearby').addEventListener('click', () => {
+  stopScreenOrigin = 'sel';
+  openNearbyScreen();
+});
+
+document.getElementById('btn-board-nearby').addEventListener('click', () => {
+  stopScreenOrigin = 'board';
+  openNearbyScreen();
+});
+
+document.getElementById('nearby-back').addEventListener('click', () => {
+  if (stopScreenOrigin === 'board') showBoardScreen();
+  else { showScreen('sel-screen'); renderSelScreen(); }
+});
+
+document.getElementById('weather-banner-close').addEventListener('click', () => {
+  const banner = document.getElementById('weather-banner');
+  try { JSON.parse(banner.dataset.msgs || '[]').forEach(m => weatherDismissed.add(m)); } catch {}
+  banner.classList.remove('show');
+});
+
 document.getElementById('stop-back').addEventListener('click', () => {
   if (stopScreenOrigin === 'board') {
     showBoardScreen();
@@ -1979,6 +2330,10 @@ if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   });
 }
+
+// Service alerts — check on load, then every 5 minutes
+checkWeatherAlerts();
+setInterval(checkWeatherAlerts, 5 * 60 * 1000);
 // Intro screen shown on initial load only — internal navigation uses showScreen() directly
 </script>
 </body>
