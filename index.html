@@ -184,7 +184,7 @@
   /* ════════════════════════════════════════
      SCREEN 1 — SELECTION
   ════════════════════════════════════════ */
-  #sel-screen { padding: 12px; gap: 10px; }
+  #sel-screen { padding: 12px; padding-top: calc(12px + env(safe-area-inset-top, 0px)); gap: 10px; }
 
   .sel-header {
     display: flex;
@@ -439,6 +439,7 @@
     background: var(--header-bg);
     border-bottom: 2px solid var(--primary-border);
     padding: 10px 14px;
+    padding-top: calc(10px + env(safe-area-inset-top, 0px));
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -743,6 +744,7 @@
     background: var(--header-bg);
     border-bottom: 2px solid var(--primary-border);
     padding: 9px 14px;
+    padding-top: calc(9px + env(safe-area-inset-top, 0px));
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -926,54 +928,6 @@
 
   .edit-mode .board-del { display: inline-block; }
 
-  /* ── Offline banner ── */
-  #offline-banner {
-    display: none;
-    position: fixed;
-    bottom: 0; left: 0; right: 0;
-    background: var(--red);
-    color: #fff;
-    text-align: center;
-    padding: 10px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    z-index: 999;
-  }
-
-  #offline-banner.show { display: block; }
-
-  /* ── Weather / service alert banner ── */
-  #weather-banner {
-    display: none;
-    position: fixed;
-    top: 0; left: 0; right: 0;
-    padding-top: env(safe-area-inset-top, 0px);
-    background: var(--orange);
-    color: #241505;
-    z-index: 998;
-  }
-  #weather-banner.show { display: block; }
-  #weather-banner-text {
-    display: block;
-    text-align: center;
-    padding: 8px 44px;
-    font-size: 0.78rem;
-    font-weight: 700;
-  }
-  #weather-banner-close {
-    position: absolute;
-    right: 8px;
-    top: calc(50% + env(safe-area-inset-top, 0px) / 2);
-    transform: translateY(-50%);
-    background: none;
-    border: none;
-    color: inherit;
-    font-size: 1rem;
-    cursor: pointer;
-    padding: 4px 8px;
-    touch-action: manipulation;
-  }
-
   /* ── Spinner ── */
   .spinner {
     display: inline-block;
@@ -1014,15 +968,15 @@
     button.key.letter { padding: 8px 10px; font-size: 0.9rem; }
     .sel-input-area { min-height: 46px; padding: 8px 14px; }
     #typed-display { font-size: 1.6rem; }
-    #sel-screen    { gap: 7px; padding: 8px; }
+    #sel-screen    { gap: 7px; padding: 8px; padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
     .sel-numpad    { gap: 5px; }
     .numpad-digits { gap: 4px; }
     .numpad-letters { gap: 4px; }
     #btn-add-route { padding: 10px; }
 
     /* Headers */
-    .stop-header   { padding: 7px 12px; gap: 6px; }
-    .board-header  { padding: 6px 12px; }
+    .stop-header   { padding: 7px 12px; padding-top: calc(7px + env(safe-area-inset-top, 0px)); gap: 6px; }
+    .board-header  { padding: 6px 12px; padding-top: calc(6px + env(safe-area-inset-top, 0px)); }
     .dir-tab       { padding: 6px; font-size: 0.8rem; }
 
     /* Intro compact */
@@ -1138,7 +1092,7 @@
       <span class="intro-badge intro-badge-kmb">KMB 九巴</span>
       <span class="intro-badge intro-badge-ctb">CTB 城巴</span>
     </div>
-    <div class="intro-version">v1.6</div>
+    <div class="intro-version">v1.7</div>
     <button type="button" id="btn-enter-app">開始使用 · Enter App →</button>
     <div class="intro-footer">
       資料來源：香港政府公共交通API<br>
@@ -1244,15 +1198,6 @@
     </div>
   </div>
   <div id="board-rows"></div>
-</div>
-
-<!-- 離線提示 -->
-<div id="offline-banner">⚠ 服務暫停 — 網絡中斷</div>
-
-<!-- 天氣特別警告 -->
-<div id="weather-banner">
-  <span id="weather-banner-text"></span>
-  <button type="button" id="weather-banner-close" title="關閉">✕</button>
 </div>
 
 <!-- Toast -->
@@ -1458,16 +1403,6 @@ function saveBoard() {
   localStorage.setItem('kmb_board', JSON.stringify(board));
 }
 
-// ═══════════════════════════════════════════════════════════
-// OFFLINE
-// ═══════════════════════════════════════════════════════════
-function setOffline(v) {
-  document.getElementById('offline-banner').classList.toggle('show', v);
-}
-
-window.addEventListener('online',  () => setOffline(false));
-window.addEventListener('offline', () => setOffline(true));
-
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // Retries transient failures with exponential backoff (500ms, 1500ms) before
@@ -1478,13 +1413,9 @@ async function apiFetch(url, retries = 2) {
     try {
       const r = await fetch(url);
       if (!r.ok) throw new Error(r.status);
-      setOffline(false);
       return await r.json();
     } catch (e) {
-      if (attempt === retries) {
-        if (!navigator.onLine) setOffline(true);
-        throw e;
-      }
+      if (attempt === retries) throw e;
       await sleep(500 * Math.pow(3, attempt));
     }
   }
@@ -2152,36 +2083,6 @@ async function loadNearbyRoutes(stopId) {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// SERVICE ALERTS  (feature B — Phase 2, HKO weather warnings)
-// ═══════════════════════════════════════════════════════════
-const weatherDismissed = new Set();
-
-async function checkWeatherAlerts() {
-  try {
-    const r = await fetch('https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=warnsum&lang=tc');
-    if (!r.ok) return;
-    const data = await r.json();
-
-    const msgs = Array.isArray(data.warningMessage) ? data.warningMessage.filter(Boolean) : [];
-    const extra = [];
-    for (const [k, v] of Object.entries(data)) {
-      if (k === 'warningMessage') continue;
-      if (v && typeof v === 'object' && v.name) extra.push(v.name);
-    }
-    const all = [...new Set([...msgs, ...extra])].filter(m => !weatherDismissed.has(m));
-
-    const banner = document.getElementById('weather-banner');
-    if (all.length > 0) {
-      document.getElementById('weather-banner-text').textContent = '⚠ ' + all.join(' · ') + ' — 部分巴士服務可能受影響';
-      banner.dataset.msgs = JSON.stringify(all);
-      banner.classList.add('show');
-    } else {
-      banner.classList.remove('show');
-    }
-  } catch (e) { /* non-critical — fail silently, never block the board */ }
-}
-
 function addBoardItem(route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
   const dup = board.find(b => b.route === route && b.company === company && b.dir === dir && b.stopId === stopId);
   if (!dup) {
@@ -2376,12 +2277,6 @@ document.querySelectorAll('#nearby-view-tabs .dir-tab').forEach(tab => {
   tab.addEventListener('click', () => switchNearbyView(tab.dataset.view));
 });
 
-document.getElementById('weather-banner-close').addEventListener('click', () => {
-  const banner = document.getElementById('weather-banner');
-  try { JSON.parse(banner.dataset.msgs || '[]').forEach(m => weatherDismissed.add(m)); } catch {}
-  banner.classList.remove('show');
-});
-
 document.getElementById('stop-back').addEventListener('click', () => {
   if (stopScreenOrigin === 'board') {
     showBoardScreen();
@@ -2501,9 +2396,6 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-// Service alerts — check on load, then every 5 minutes
-checkWeatherAlerts();
-setInterval(checkWeatherAlerts, 5 * 60 * 1000);
 // Intro screen shown on initial load only — internal navigation uses showScreen() directly
 </script>
 </body>
