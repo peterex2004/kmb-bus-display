@@ -526,6 +526,69 @@
     gap: 5px;
   }
 
+  #nearby-map {
+    flex: 1 1 0;
+    min-height: 0;
+    display: none;
+  }
+
+  #nearby-map.active {
+    display: block;
+  }
+
+  #nearby-list.hidden {
+    display: none;
+  }
+
+  #nearby-map .leaflet-popup-content-wrapper,
+  #nearby-map .leaflet-popup-tip {
+    background: var(--card-bg);
+    color: var(--text);
+  }
+
+  #nearby-map .leaflet-popup-content {
+    margin: 10px 12px;
+    font-family: inherit;
+  }
+
+  #nearby-map .nearby-popup-tc { font-size: 0.85rem; font-weight: 600; }
+  #nearby-map .nearby-popup-en { font-size: 0.72rem; color: var(--muted); margin-top: 2px; }
+  #nearby-map .nearby-popup-dist { font-size: 0.72rem; color: var(--green); font-weight: 700; margin-top: 4px; }
+
+  #nearby-map .leaflet-control-attribution {
+    background: rgba(10,25,47,0.7);
+    color: var(--muted);
+  }
+
+  #nearby-map .leaflet-control-attribution a { color: var(--green); }
+
+  #nearby-map .leaflet-bar a {
+    background: var(--card-bg);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+  }
+
+  #nearby-map .leaflet-bar a:hover {
+    background: var(--btn-bg);
+  }
+
+  .nearby-user-dot {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--green);
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 4px rgba(100,255,218,0.25);
+  }
+
+  .nearby-stop-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--primary);
+    border: 2px solid #fff;
+  }
+
   .stop-distance {
     font-size: 0.72rem;
     color: var(--green);
@@ -1075,7 +1138,7 @@
       <span class="intro-badge intro-badge-kmb">KMB 九巴</span>
       <span class="intro-badge intro-badge-ctb">CTB 城巴</span>
     </div>
-    <div class="intro-version">v1.5</div>
+    <div class="intro-version">v1.6</div>
     <button type="button" id="btn-enter-app">開始使用 · Enter App →</button>
     <div class="intro-footer">
       資料來源：香港政府公共交通API<br>
@@ -1148,9 +1211,14 @@
         <span>📍 附近站點 Nearby</span>
       </div>
     </div>
+    <div class="dir-tabs" id="nearby-view-tabs">
+      <button type="button" class="dir-tab active" data-view="list">☰ 列表 List</button>
+      <button type="button" class="dir-tab" data-view="map">🗺 地圖 Map</button>
+    </div>
     <div class="stop-dir-hint">只支援九巴站點 · KMB stops only, powered by GPS</div>
   </div>
   <div id="nearby-list"></div>
+  <div id="nearby-map"></div>
 </div>
 
 <!-- ════════ SCREEN 3: 班次顯示板 ════════ -->
@@ -1341,9 +1409,31 @@ let activeEtaDestTc  = null;
 let etaFetchToken    = 0;
 
 // Nearby stops (feature #1 — Phase 2)
-let nearbyStopsData  = [];        // [{stop, name_tc, name_en, dist}]
+let nearbyStopsData  = [];        // [{stop, name_tc, name_en, dist, lat, long}]
 let nearbyExpanded   = null;
 let nearbyRoutesCache = new Map(); // stopId -> [{route,dir,serviceType,destTc,destEn,seq,etas}]
+let nearbyUserPos    = null;      // {lat, long}
+let nearbyViewMode   = 'list';
+let nearbyMap        = null;
+let nearbyMarkers    = [];
+let leafletLoadPromise = null;
+
+function ensureLeaflet() {
+  if (leafletLoadPromise) return leafletLoadPromise;
+  leafletLoadPromise = new Promise((resolve, reject) => {
+    if (window.L) { resolve(); return; }
+    const css = document.createElement('link');
+    css.rel = 'stylesheet';
+    css.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+    document.head.appendChild(css);
+    const script = document.createElement('script');
+    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error('Failed to load Leaflet'));
+    document.head.appendChild(script);
+  });
+  return leafletLoadPromise;
+}
 
 // ═══════════════════════════════════════════════════════════
 // HELPERS
@@ -1856,6 +1946,7 @@ function openNearbyScreen() {
     try {
       await ensureStopCache();
       const { latitude, longitude } = pos.coords;
+      nearbyUserPos = { lat: latitude, long: longitude };
       const all = [];
       for (const [stopId, info] of stopCache) {
         if (!info.lat || !info.long) continue;
@@ -1863,12 +1954,15 @@ function openNearbyScreen() {
           stop: stopId,
           name_tc: cleanName(info.name_tc),
           name_en: cleanName(info.name_en),
+          lat: info.lat,
+          long: info.long,
           dist: haversineMeters(latitude, longitude, info.lat, info.long)
         });
       }
       all.sort((a, b) => a.dist - b.dist);
       nearbyStopsData = all.slice(0, 20);
       nearbyExpanded = null;
+      switchNearbyView('list');
       renderNearbyList();
     } catch (e) {
       listEl.innerHTML = '<div class="stop-loading" style="color:var(--red)">載入站點資料失敗<br>Failed to load stop data</div>';
@@ -1913,6 +2007,78 @@ function renderNearbyList() {
       loadNearbyRoutes(stopId);
     });
   });
+}
+
+function switchNearbyView(mode) {
+  nearbyViewMode = mode;
+  document.querySelectorAll('#nearby-view-tabs .dir-tab').forEach(tab => {
+    tab.classList.toggle('active', tab.dataset.view === mode);
+  });
+  document.getElementById('nearby-list').classList.toggle('hidden', mode !== 'list');
+  document.getElementById('nearby-map').classList.toggle('active', mode === 'map');
+  if (mode === 'map') showNearbyMap();
+}
+
+async function showNearbyMap() {
+  const mapEl = document.getElementById('nearby-map');
+  mapEl.innerHTML = '<div class="stop-loading">載入地圖中… Loading map <span class="spinner"></span></div>';
+
+  try {
+    await ensureLeaflet();
+  } catch (e) {
+    mapEl.innerHTML = '<div class="stop-loading" style="color:var(--red)">無法載入地圖<br>Failed to load map</div>';
+    return;
+  }
+
+  if (nearbyViewMode !== 'map') return; // user switched away while loading
+
+  mapEl.innerHTML = '';
+  if (nearbyMap) { nearbyMap.remove(); nearbyMap = null; }
+  nearbyMarkers = [];
+
+  nearbyMap = L.map(mapEl, { attributionControl: true }).setView(
+    nearbyUserPos ? [nearbyUserPos.lat, nearbyUserPos.long] : [22.3193, 114.1694], 16
+  );
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    maxZoom: 19
+  }).addTo(nearbyMap);
+
+  const bounds = [];
+
+  if (nearbyUserPos) {
+    const userIcon = L.divIcon({ className: '', html: '<div class="nearby-user-dot"></div>', iconSize: [16, 16] });
+    L.marker([nearbyUserPos.lat, nearbyUserPos.long], { icon: userIcon }).addTo(nearbyMap);
+    bounds.push([nearbyUserPos.lat, nearbyUserPos.long]);
+  }
+
+  const stopIcon = L.divIcon({ className: '', html: '<div class="nearby-stop-dot"></div>', iconSize: [12, 12] });
+  nearbyStopsData.forEach(s => {
+    if (!s.lat || !s.long) return;
+    const marker = L.marker([s.lat, s.long], { icon: stopIcon }).addTo(nearbyMap);
+    marker.bindPopup(`
+      <div class="nearby-popup-tc">${s.name_tc}</div>
+      <div class="nearby-popup-en">${s.name_en}</div>
+      <div class="nearby-popup-dist">${formatDistance(s.dist)}</div>
+    `);
+    marker.on('click', () => {
+      nearbyExpanded = s.stop;
+      switchNearbyView('list');
+      renderNearbyList();
+      loadNearbyRoutes(s.stop);
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`.stop-item[data-stop-id="${s.stop}"]`);
+        if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      });
+    });
+    nearbyMarkers.push(marker);
+    bounds.push([s.lat, s.long]);
+  });
+
+  if (bounds.length > 1) nearbyMap.fitBounds(bounds, { padding: [30, 30] });
+
+  setTimeout(() => { if (nearbyMap) nearbyMap.invalidateSize(); }, 100);
 }
 
 async function loadNearbyRoutes(stopId) {
@@ -2204,6 +2370,10 @@ document.getElementById('btn-board-nearby').addEventListener('click', () => {
 document.getElementById('nearby-back').addEventListener('click', () => {
   if (stopScreenOrigin === 'board') showBoardScreen();
   else { showScreen('sel-screen'); renderSelScreen(); }
+});
+
+document.querySelectorAll('#nearby-view-tabs .dir-tab').forEach(tab => {
+  tab.addEventListener('click', () => switchNearbyView(tab.dataset.view));
 });
 
 document.getElementById('weather-banner-close').addEventListener('click', () => {

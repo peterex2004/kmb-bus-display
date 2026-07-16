@@ -70,6 +70,7 @@ Opening `index.html` directly as `file://` may block API calls in some browsers.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.6 | 2026-07-17 | Nearby Stops map view — Leaflet + CartoDB dark tiles (no API key), user/stop markers, tap-marker-to-expand |
 | v1.5 | 2026-07-16 | Mobile Phase 2 — GPS nearby-stops finder (KMB), live HKO weather/service-alert banner, API retry with exponential backoff |
 | v1.4 | 2026-07-16 | Mobile Phase 1 — installable PWA (offline app shell), responsive adaptive layout (multi-column board on wide screens), share-link (deep-link a stop or the whole board via URL) |
 | v1.3 | 2026-07-01 | Opposite direction tile at bottom of stop list; letter row moved above number pad |
