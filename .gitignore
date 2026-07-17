@@ -1,0 +1,4 @@
+.agent-output/
+worktrees/
+**/.runtime/
+.claude/agent-workflow.local.sh
