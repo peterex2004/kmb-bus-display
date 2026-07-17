@@ -70,6 +70,10 @@ Opening `index.html` directly as `file://` may block API calls in some browsers.
 
 | Version | Date | Notes |
 |---|---|---|
+| v1.7 | 2026-07-17 | Removed offline/weather-alert banners (were overlapping header controls on notch/Dynamic Island phones e.g. iPhone 17); added safe-area-inset-top padding to all screen headers |
+| v1.6 | 2026-07-17 | Nearby Stops map view — Leaflet + CartoDB dark tiles (no API key), user/stop markers, tap-marker-to-expand |
+| v1.5 | 2026-07-16 | Mobile Phase 2 — GPS nearby-stops finder (KMB), live HKO weather/service-alert banner, API retry with exponential backoff |
+| v1.4 | 2026-07-16 | Mobile Phase 1 — installable PWA (offline app shell), responsive adaptive layout (multi-column board on wide screens), share-link (deep-link a stop or the whole board via URL) |
 | v1.3 | 2026-07-01 | Opposite direction tile at bottom of stop list; letter row moved above number pad |
 | v1.2 | 2026-07-01 | Added CTB/新巴城巴 — both companies shown in search with colour badges; CTB stop picker and ETA fully integrated |
 | v1.1 | 2026-07-01 | Numpad fixed on mobile; Home button on stop picker; safe-area inset support |
