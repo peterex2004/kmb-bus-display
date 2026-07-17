@@ -857,29 +857,8 @@
   .board-card-stop {
     font-size: 0.68rem;
     color: var(--muted);
-    margin-bottom: 0;
-    padding-right: 68px;
-  }
-
-  .board-card-info {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    flex-wrap: wrap;
     margin-bottom: 8px;
     padding-right: 68px;
-  }
-
-  .board-fare {
-    color: var(--primary);
-    font-size: 0.68rem;
-    font-weight: 600;
-    white-space: nowrap;
-  }
-
-  .board-fare.loading {
-    color: var(--muted);
-    font-weight: 400;
   }
 
   .board-etas { display: flex; gap: 7px; flex-wrap: wrap; }
@@ -980,7 +959,6 @@
     .board-route   { font-size: 1.2rem; min-width: 52px; }
     .board-dest    { font-size: 0.8rem; }
     .board-card-stop { font-size: 0.62rem; margin-bottom: 5px; }
-    .board-fare   { font-size: 0.62rem; }
     .board-etas    { gap: 5px; }
     .eta-pill      { padding: 4px 10px; font-size: 0.88rem; min-width: 48px; }
     #board-rows    { gap: 5px; padding: 5px; }
@@ -1351,9 +1329,6 @@ async function mockFetch(url) {
 // ═══════════════════════════════════════════════════════════
 const KMB_API = 'https://data.etabus.gov.hk/v1/transport/kmb';
 const CTB_API = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb';
-const BUS_FARE_API = 'https://static.data.gov.hk/td/routes-fares-geojson/JSON_BUS.json';
-const FARE_CACHE_KEY = 'kmb_bus_fares_v1';
-const FARE_CACHE_MAX_AGE = 14 * 24 * 60 * 60 * 1000;
 
 let typed = '';
 let board = [];
@@ -1367,8 +1342,6 @@ let stopScreenOrigin = 'sel';      // 'sel' | 'board'
 let editMode     = false;
 let refreshTimer = null;
 let etaRefreshToken = 0;
-let fareRegistry = null;
-let fareFetchPromise = null;
 
 // Stop screen ETA state
 let currentStopList  = [];
@@ -1450,65 +1423,7 @@ const BoardLogic = (() => {
     return keyA.localeCompare(keyB, undefined, { numeric: true });
   }
 
-  function fareRecords(payload) {
-    if (Array.isArray(payload)) return payload;
-    if (Array.isArray(payload?.features)) return payload.features;
-    if (Array.isArray(payload?.data)) return payload.data;
-    return [];
-  }
-
-  function fareField(record, field) {
-    const source = record?.properties || record || {};
-    if (source[field] !== undefined) return source[field];
-    const lower = field[0].toLowerCase() + field.slice(1);
-    return source[lower];
-  }
-
-  function normalizeText(value) {
-    return String(value ?? '').trim().toUpperCase();
-  }
-
-  function parseFareValue(payload, item) {
-    const company = normalizeText(item?.company || 'KMB');
-    const route = normalizeText(item?.route);
-    if (!route) return null;
-
-    for (const record of fareRecords(payload)) {
-      const source = record?.properties || record || {};
-      const companyCode = normalizeText(fareField(source, 'companyCode'));
-      const routeNames = [
-        fareField(source, 'routeNameC'),
-        fareField(source, 'routeNameS'),
-        fareField(source, 'routeNameE')
-      ].map(normalizeText);
-      const fare = finiteNumber(fareField(source, 'fullFare'));
-      if (companyCode === company && routeNames.includes(route) && fare !== null && fare >= 0) {
-        return fare;
-      }
-    }
-    return null;
-  }
-
-  function formatFare(value) {
-    const fare = finiteNumber(value);
-    return fare !== null && fare >= 0 ? `車費 / Fare $${fare.toFixed(1)}` : '';
-  }
-
-  function buildFareRegistry(payload) {
-    const registry = {};
-    for (const record of fareRecords(payload)) {
-      const source = record?.properties || record || {};
-      const company = normalizeText(fareField(source, 'companyCode'));
-      const route = normalizeText(
-        fareField(source, 'routeNameC') || fareField(source, 'routeNameE')
-      );
-      const fare = parseFareValue({ data: [record] }, { company, route });
-      if (company && route && fare !== null) registry[`${company}:${route}`] = fare;
-    }
-    return registry;
-  }
-
-  return { compareBoardItems, parseFareValue, formatFare, buildFareRegistry };
+  return { compareBoardItems };
 })();
 /* BOARD_LOGIC_END */
 
@@ -1519,7 +1434,7 @@ function loadBoard() {
   try {
     const stored = JSON.parse(localStorage.getItem('kmb_board') || '[]');
     board = Array.isArray(stored) ? stored.map((b, i) => {
-      const { nearestEta, etaRows, fareValue, ...persistent } = b || {};
+      const { nearestEta, etaRows, ...persistent } = b || {};
       const boardOrder = Number(persistent.boardOrder);
       return {
         company: 'KMB',
@@ -1535,7 +1450,7 @@ function loadBoard() {
 
 function saveBoard() {
   const persistentBoard = board.map(item => {
-    const { nearestEta, etaRows, fareValue, ...persistent } = item;
+    const { nearestEta, etaRows, ...persistent } = item;
     return persistent;
   });
   localStorage.setItem('kmb_board', JSON.stringify(persistentBoard));
@@ -1562,53 +1477,6 @@ async function apiFetch(url, retries = 2) {
       await sleep(500 * Math.pow(3, attempt));
     }
   }
-}
-
-function loadFareCache() {
-  if (fareRegistry) return true;
-  try {
-    const cached = JSON.parse(localStorage.getItem(FARE_CACHE_KEY) || 'null');
-    const fetchedAt = Number(cached?.fetchedAt);
-    if (!cached || !cached.routes || !Number.isFinite(fetchedAt) || Date.now() - fetchedAt > FARE_CACHE_MAX_AGE) {
-      return false;
-    }
-    fareRegistry = cached.routes;
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureFareRegistry() {
-  if (loadFareCache()) return fareRegistry;
-  if (fareFetchPromise) return fareFetchPromise;
-
-  fareFetchPromise = apiFetch(BUS_FARE_API).then(payload => {
-    const routes = BoardLogic.buildFareRegistry(payload);
-    fareRegistry = routes;
-    localStorage.setItem(FARE_CACHE_KEY, JSON.stringify({ fetchedAt: Date.now(), routes }));
-    return routes;
-  }).finally(() => {
-    fareFetchPromise = null;
-  });
-  return fareFetchPromise;
-}
-
-function fareForItem(item) {
-  if (!fareRegistry) return null;
-  const key = `${String(item.company || 'KMB').toUpperCase()}:${String(item.route || '').toUpperCase()}`;
-  return Object.prototype.hasOwnProperty.call(fareRegistry, key) ? fareRegistry[key] : null;
-}
-
-async function refreshBoardFares() {
-  try {
-    await ensureFareRegistry();
-    board.forEach(item => { item.fareValue = fareForItem(item); });
-  } catch {
-    // A fare outage must not block ETA refreshes or show an invented value.
-    board.forEach(item => { item.fareValue = null; });
-  }
-  if (document.getElementById('disp-screen').classList.contains('active')) renderBoard();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2311,12 +2179,6 @@ function renderBoardEta(item) {
   }).join('');
 }
 
-function renderBoardFare(item) {
-  if (item.fareValue === undefined) return '<span class="board-fare loading">車費 / Fare …</span>';
-  const label = BoardLogic.formatFare(item.fareValue);
-  return label ? `<span class="board-fare">${label}</span>` : '';
-}
-
 function renderBoard() {
   document.getElementById('btn-board-edit').textContent = editMode ? '完成' : '編輯';
   const el = document.getElementById('board-rows');
@@ -2335,10 +2197,7 @@ function renderBoard() {
         <span class="board-company board-${(item.company||'KMB').toLowerCase()}">${item.company||'KMB'}</span>
         <span class="board-dest">往 ${item.destTc || '—'}</span>
       </div>
-      <div class="board-card-info">
-        <div class="board-card-stop">${item.stopName} &bull; 第 ${item.stopSeq} 站</div>
-        ${renderBoardFare(item)}
-      </div>
+      <div class="board-card-stop">${item.stopName} &bull; 第 ${item.stopSeq} 站</div>
       <div class="board-etas" id="etas-${i}">
         ${renderBoardEta(item)}
       </div>
@@ -2433,7 +2292,6 @@ async function fetchETA(item) {
 function startRefresh() {
   if (refreshTimer) clearInterval(refreshTimer);
   refreshETAs();
-  refreshBoardFares();
   refreshTimer = setInterval(refreshETAs, 15000);
 }
 
