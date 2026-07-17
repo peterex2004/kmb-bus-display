@@ -24,17 +24,20 @@ RUNTIME_PREP_CMD=""
 # CODEX_EXEC_FLAGS="--sandbox workspace-write"
 
 # --- Model routing (cost tiering) -----------------------------------------
-# Two-tier policy: the cheaper balanced model is the DEFAULT executor; the
-# stronger-reasoning model is the ESCALATION tier. Claude has already scoped
-# and gated the work, so most work orders are clear + testable and run fine on
-# the default. Terra is ~half the token price of Sol for the same context.
+# Two-tier policy for THIS account (verified live against this Codex CLI
+# install — bare codenames like "luna"/"sol" are rejected; the full
+# "gpt-5.6-<name>" form is required):
 #
-#   CODEX_MODEL            default executor  — LOW/MEDIUM tasks (tests, bugs,
-#                          docs, UI, config, clear-scope refactors)
-#   CODEX_MODEL_ESCALATED  used automatically for the correction round (a task
-#                          that failed once needs deeper reasoning); also launch
-#                          HIGH-risk tasks (scoring formulas, migrations,
-#                          auth/tokens, schema, major perf) on it explicitly:
-#                          `CODEX_MODEL=$CODEX_MODEL_ESCALATED scripts/agent-orchestrator.sh`
-CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-terra}"
+#   CODEX_MODEL + CODEX_REASONING_EFFORT
+#     default executor — LOW/MEDIUM tasks (tests, bugs, docs, UI, config,
+#     clear-scope refactors). gpt-5.6-luna at xhigh reasoning effort.
+#   CODEX_MODEL_ESCALATED + CODEX_REASONING_EFFORT_ESCALATED
+#     used automatically for the correction round (a task that failed once
+#     needs a stronger model); also launch HIGH-risk / very complicated tasks
+#     (scoring formulas, migrations, auth/tokens, schema, major perf) on it
+#     explicitly:
+#     `CODEX_MODEL=$CODEX_MODEL_ESCALATED CODEX_REASONING_EFFORT=$CODEX_REASONING_EFFORT_ESCALATED scripts/agent-orchestrator.sh`
+CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-luna}"
+CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-xhigh}"
 CODEX_MODEL_ESCALATED="${CODEX_MODEL_ESCALATED:-gpt-5.6-sol}"
+CODEX_REASONING_EFFORT_ESCALATED="${CODEX_REASONING_EFFORT_ESCALATED:-high}"

@@ -34,6 +34,9 @@ CODEX_EXEC_FLAGS="${CODEX_EXEC_FLAGS:---sandbox workspace-write}"
 # correction round auto-escalates to the stronger model (see docs).
 CODEX_MODEL="${CODEX_MODEL:-gpt-5.6-terra}"
 CODEX_MODEL_ESCALATED="${CODEX_MODEL_ESCALATED:-gpt-5.6-sol}"
+# Optional per-tier reasoning effort (low|medium|high|xhigh). Empty => Codex default.
+CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT:-}"
+CODEX_REASONING_EFFORT_ESCALATED="${CODEX_REASONING_EFFORT_ESCALATED:-}"
 VALIDATION_CMD="${VALIDATION_CMD:-make test}"
 GOLDEN_TEST="${GOLDEN_TEST:-}"                 # empty => no golden-specific gate
 RUNTIME_PREP_CMD="${RUNTIME_PREP_CMD:-}"       # empty => no runtime prep step
@@ -87,6 +90,7 @@ run_claude() { ( cd "$ROOT" && "$CLAUDE_BIN" --add-dir "$OUT" -p "$1" ); }
 # refs live there) and the exchange dir so it can commit + drop reports.
 run_codex()  { ( cd "$CODEX_WORKTREE" \
                  && "$CODEX_BIN" exec $CODEX_EXEC_FLAGS -m "$CODEX_MODEL" \
+                      ${CODEX_REASONING_EFFORT:+-c model_reasoning_effort="$CODEX_REASONING_EFFORT"} \
                       --add-dir "$ROOT/.git" --add-dir "$OUT" "$1" ); }
 
 # --- false-green guard: independently re-run validation --------------------
@@ -171,7 +175,8 @@ codex_correct() {
   # A task that failed round 1 needs deeper reasoning: escalate the model for
   # the single correction cycle (dynamic scope makes run_codex see this).
   local CODEX_MODEL="$CODEX_MODEL_ESCALATED"
-  log "Codex: single correction cycle (model: $CODEX_MODEL)"
+  local CODEX_REASONING_EFFORT="${CODEX_REASONING_EFFORT_ESCALATED:-$CODEX_REASONING_EFFORT}"
+  log "Codex: single correction cycle (model: $CODEX_MODEL, effort: ${CODEX_REASONING_EFFORT:-default})"
   run_codex "Read $OUT/codex-correction-order.md. Verify each finding independently; fix valid \
 BLOCKER/MAJOR (and low-risk in-scope MINOR); add regression tests for fixed defects; document \
 rejected findings with a reason. Re-run the project's validation. Commit corrections separately. \
