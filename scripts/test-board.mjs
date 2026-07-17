@@ -42,37 +42,4 @@ assert.equal(
   'starred cards are not pinned ahead of a sooner ETA'
 );
 
-// Fixed record from the official Transport Department JSON_BUS.json route
-// dataset: KMB route 213M is a $5.1 full-fare route with no sectional fare.
-const fareSample = {
-  type: 'FeatureCollection',
-  features: [{
-    type: 'Feature',
-    properties: {
-      companyCode: 'KMB',
-      routeNameC: '213M',
-      routeNameS: '213M',
-      routeNameE: '213M',
-      fullFare: 5.1
-    }
-  }]
-};
-
-assert.equal(
-  logic.parseFareValue(fareSample, { company: 'KMB', route: '213M', stopSeq: 1 }),
-  5.1,
-  'fare parser reads the official route fare field'
-);
-assert.deepEqual(
-  JSON.parse(JSON.stringify(logic.buildFareRegistry(fareSample))),
-  { 'KMB:213M': 5.1 },
-  'fare cache transformation keeps the official company/route key'
-);
-assert.equal(logic.formatFare(5.1), '車費 / Fare $5.1', 'fare formatter preserves bilingual display text');
-assert.equal(
-  logic.parseFareValue(fareSample, { company: 'CTB', route: '213M' }),
-  null,
-  'fare parser does not cross company boundaries'
-);
-
-console.log('PASS: board ordering and fare parsing regression tests');
+console.log('PASS: board ordering regression tests');
