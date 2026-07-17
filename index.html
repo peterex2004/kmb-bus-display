@@ -1419,6 +1419,7 @@ function cleanName(name) {
 /* BOARD_LOGIC_START */
 const BoardLogic = (() => {
   function finiteNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
     const number = Number(value);
     return Number.isFinite(number) ? number : null;
   }
@@ -2416,9 +2417,10 @@ async function fetchETA(item) {
     const data = await apiFetch(url);
     const dirCode = item.dir === 'outbound' ? 'O' : 'I';
     const rows = (data.data || []).filter(r => r.dir === dirCode && r.eta);
+    const now = Date.now();
 
     item.etaRows = rows.map(r => ({ etaMs: new Date(r.eta).getTime() }))
-      .filter(r => Number.isFinite(r.etaMs))
+      .filter(r => Number.isFinite(r.etaMs) && r.etaMs >= now)
       .sort((a, b) => a.etaMs - b.etaMs)
       .slice(0, 3);
     item.nearestEta = item.etaRows.length > 0 ? item.etaRows[0].etaMs : null;
