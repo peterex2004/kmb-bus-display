@@ -1329,6 +1329,8 @@ async function mockFetch(url) {
 // ═══════════════════════════════════════════════════════════
 const KMB_API = 'https://data.etabus.gov.hk/v1/transport/kmb';
 const CTB_API = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb';
+const REMIND_LEAD_MIN = 3;
+const REMIND_LEAD_MS = REMIND_LEAD_MIN * 60000;
 
 let typed = '';
 let board = [];
@@ -1391,6 +1393,8 @@ function cleanName(name) {
 
 /* BOARD_LOGIC_START */
 const BoardLogic = (() => {
+  const REARM_TOLERANCE_MS = 90_000;
+
   function finiteNumber(value) {
     if (value === null || value === undefined || value === '') return null;
     const number = Number(value);
@@ -1423,7 +1427,49 @@ const BoardLogic = (() => {
     return keyA.localeCompare(keyB, undefined, { numeric: true });
   }
 
-  return { compareBoardItems };
+  function evaluateReminder(state, now) {
+    const reminder = state || {};
+    if (reminder.remindMe !== true) {
+      return { shouldNotify: false, notifiedEta: null, minutes: null };
+    }
+
+    const nearestEta = finiteNumber(reminder.nearestEta);
+    if (nearestEta === null) {
+      // An unavailable nearest bus cannot be identified reliably. Reset the
+      // latch so a later, distinct API result can arm a new notification.
+      return { shouldNotify: false, notifiedEta: null, minutes: null };
+    }
+
+    const nowMs = finiteNumber(now);
+    const leadMs = finiteNumber(reminder.leadMs);
+    if (nowMs === null || leadMs === null) {
+      return { shouldNotify: false, notifiedEta: finiteNumber(reminder.notifiedEta), minutes: null };
+    }
+
+    const minutes = (nearestEta - nowMs) / 60000;
+    const notifiedEta = finiteNumber(reminder.notifiedEta);
+    const sameBus = notifiedEta !== null &&
+      Math.abs(nearestEta - notifiedEta) <= REARM_TOLERANCE_MS;
+    const newerBus = notifiedEta === null ||
+      nearestEta > notifiedEta + REARM_TOLERANCE_MS;
+
+    // Small ETA drift is the same bus. An earlier estimate outside the
+    // tolerance is also held by the latch; only a distinctly later arrival
+    // can re-arm it after the notified bus has passed.
+    if (sameBus || (notifiedEta !== null && !newerBus)) {
+      return { shouldNotify: false, notifiedEta, minutes };
+    }
+
+    if (minutes <= leadMs / 60000) {
+      return { shouldNotify: true, notifiedEta: nearestEta, minutes };
+    }
+
+    // A later bus is now the nearest one but is not yet within the lead time.
+    // Clear the old latch so it can fire when this bus reaches the threshold.
+    return { shouldNotify: false, notifiedEta: null, minutes };
+  }
+
+  return { compareBoardItems, evaluateReminder, REARM_TOLERANCE_MS };
 })();
 /* BOARD_LOGIC_END */
 
@@ -1434,11 +1480,12 @@ function loadBoard() {
   try {
     const stored = JSON.parse(localStorage.getItem('kmb_board') || '[]');
     board = Array.isArray(stored) ? stored.map((b, i) => {
-      const { nearestEta, etaRows, ...persistent } = b || {};
+      const { nearestEta, etaRows, remindNotifiedEta, ...persistent } = b || {};
       const boardOrder = Number(persistent.boardOrder);
       return {
         company: 'KMB',
         ...persistent,
+        remindMe: persistent.remindMe === true,
         boardOrder: Number.isFinite(boardOrder) ? boardOrder : i
       };
     }) : [];
@@ -1450,8 +1497,8 @@ function loadBoard() {
 
 function saveBoard() {
   const persistentBoard = board.map(item => {
-    const { nearestEta, etaRows, ...persistent } = item;
-    return persistent;
+    const { nearestEta, etaRows, remindNotifiedEta, ...persistent } = item;
+    return { ...persistent, remindMe: item.remindMe === true };
   });
   localStorage.setItem('kmb_board', JSON.stringify(persistentBoard));
 }
