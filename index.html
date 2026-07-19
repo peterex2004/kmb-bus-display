@@ -1341,6 +1341,7 @@ let pendingDir   = null;
 let stopScreenOrigin = 'sel';      // 'sel' | 'board'
 let editMode     = false;
 let refreshTimer = null;
+let etaRefreshToken = 0;
 
 // Stop screen ETA state
 let currentStopList  = [];
@@ -1388,19 +1389,76 @@ function cleanName(name) {
   return name.replace(/\s*\([A-Z]{2}\d+\)\s*$/i, '').trim();
 }
 
+/* BOARD_LOGIC_START */
+const BoardLogic = (() => {
+  function finiteNumber(value) {
+    if (value === null || value === undefined || value === '') return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function compareBoardItems(a, b) {
+    const etaA = finiteNumber(a.nearestEta);
+    const etaB = finiteNumber(b.nearestEta);
+
+    // A missing ETA is always less useful than a real upcoming ETA. Keep the
+    // explicit branch so Infinity - Infinity never produces NaN.
+    if (etaA === null && etaB !== null) return 1;
+    if (etaA !== null && etaB === null) return -1;
+    if (etaA !== null && etaB !== null) {
+      if (etaA < etaB) return -1;
+      if (etaA > etaB) return 1;
+    }
+
+    const orderA = finiteNumber(a.boardOrder);
+    const orderB = finiteNumber(b.boardOrder);
+    if (orderA !== null && orderB !== null && orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    // This final deterministic key also keeps malformed/legacy entries from
+    // jittering when their insertion-order metadata is missing or duplicated.
+    const keyA = `${a.company || 'KMB'}:${a.route || ''}:${a.stopId || ''}:${a.dir || ''}`;
+    const keyB = `${b.company || 'KMB'}:${b.route || ''}:${b.stopId || ''}:${b.dir || ''}`;
+    return keyA.localeCompare(keyB, undefined, { numeric: true });
+  }
+
+  return { compareBoardItems };
+})();
+/* BOARD_LOGIC_END */
+
 // ═══════════════════════════════════════════════════════════
 // PERSISTENCE
 // ═══════════════════════════════════════════════════════════
 function loadBoard() {
   try {
-    board = JSON.parse(localStorage.getItem('kmb_board') || '[]');
-    board = board.map(b => ({ company: 'KMB', ...b })); // backfill v1.x items
+    const stored = JSON.parse(localStorage.getItem('kmb_board') || '[]');
+    board = Array.isArray(stored) ? stored.map((b, i) => {
+      const { nearestEta, etaRows, ...persistent } = b || {};
+      const boardOrder = Number(persistent.boardOrder);
+      return {
+        company: 'KMB',
+        ...persistent,
+        boardOrder: Number.isFinite(boardOrder) ? boardOrder : i
+      };
+    }) : [];
+    board.sort(BoardLogic.compareBoardItems);
+    saveBoard();
   }
   catch { board = []; }
 }
 
 function saveBoard() {
-  localStorage.setItem('kmb_board', JSON.stringify(board));
+  const persistentBoard = board.map(item => {
+    const { nearestEta, etaRows, ...persistent } = item;
+    return persistent;
+  });
+  localStorage.setItem('kmb_board', JSON.stringify(persistentBoard));
+}
+
+function nextBoardOrder() {
+  const orders = board.map(item => Number(item.boardOrder)).filter(Number.isFinite);
+  return orders.length > 0 ? Math.max(...orders) + 1 : 0;
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
@@ -2086,7 +2144,7 @@ async function loadNearbyRoutes(stopId) {
 function addBoardItem(route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
   const dup = board.find(b => b.route === route && b.company === company && b.dir === dir && b.stopId === stopId);
   if (!dup) {
-    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred });
+    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred, boardOrder: nextBoardOrder() });
     saveBoard();
   } else if (starred && !dup.starred) {
     dup.starred = true;
@@ -2106,10 +2164,26 @@ function showBoardScreen() {
   startRefresh();
 }
 
+function renderBoardEta(item) {
+  if (item.etaRows === undefined) return '<span class="eta-pill no-data">載入中…</span>';
+  if (!Array.isArray(item.etaRows) || item.etaRows.length === 0) {
+    return `<span class="eta-pill no-data">${item.etaRows === null ? '—' : '暫無班次'}</span>`;
+  }
+
+  const now = Date.now();
+  return item.etaRows.map(row => {
+    const mins = Math.round((row.etaMs - now) / 60000);
+    if (mins <= 0) return '<span class="eta-pill now">即將抵達</span>';
+    if (mins <= 3) return `<span class="eta-pill soon">${mins} 分鐘</span>`;
+    return `<span class="eta-pill">${mins} 分鐘</span>`;
+  }).join('');
+}
+
 function renderBoard() {
-  document.getElementById('btn-board-edit').textContent = '編輯';
+  document.getElementById('btn-board-edit').textContent = editMode ? '完成' : '編輯';
   const el = document.getElementById('board-rows');
-  el.classList.remove('edit-mode');
+  el.classList.toggle('edit-mode', editMode);
+  board.sort(BoardLogic.compareBoardItems);
 
   if (board.length === 0) {
     el.innerHTML = '<div class="board-empty">未有路線。<br>點擊「＋ 新增」以新增路線。</div>';
@@ -2125,7 +2199,7 @@ function renderBoard() {
       </div>
       <div class="board-card-stop">${item.stopName} &bull; 第 ${item.stopSeq} 站</div>
       <div class="board-etas" id="etas-${i}">
-        <span class="eta-pill no-data">載入中…</span>
+        ${renderBoardEta(item)}
       </div>
       <button type="button" class="board-share" data-idx="${i}" title="分享此站 · Share this stop">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -2179,17 +2253,22 @@ function renderBoard() {
 }
 
 async function refreshETAs() {
-  await Promise.allSettled(board.map((_, i) => fetchETA(i)));
+  const token = ++etaRefreshToken;
+  const snapshot = board.slice();
+  await Promise.allSettled(snapshot.map(item => fetchETA(item)));
+  if (token !== etaRefreshToken) return;
+
+  // Re-apply the ordering only after the complete board snapshot has been
+  // fetched, so cards cannot move one-by-one as individual requests resolve.
+  board.sort(BoardLogic.compareBoardItems);
+  renderBoard();
+
   const now = new Date();
   document.getElementById('last-update').textContent =
     `更新 ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
 }
 
-async function fetchETA(idx) {
-  const item = board[idx];
-  const etasEl = document.getElementById(`etas-${idx}`);
-  if (!etasEl) return;
-
+async function fetchETA(item) {
   try {
     const url = (item.company || 'KMB') === 'CTB'
       ? `${CTB_API}/eta/ctb/${item.stopId}/${item.route}`
@@ -2197,21 +2276,16 @@ async function fetchETA(idx) {
     const data = await apiFetch(url);
     const dirCode = item.dir === 'outbound' ? 'O' : 'I';
     const rows = (data.data || []).filter(r => r.dir === dirCode && r.eta);
-
-    if (rows.length === 0) {
-      etasEl.innerHTML = '<span class="eta-pill no-data">暫無班次</span>';
-      return;
-    }
-
     const now = Date.now();
-    etasEl.innerHTML = rows.slice(0, 3).map(r => {
-      const mins = Math.round((new Date(r.eta).getTime() - now) / 60000);
-      if (mins <= 0) return '<span class="eta-pill now">即將抵達</span>';
-      if (mins <= 3) return `<span class="eta-pill soon">${mins} 分鐘</span>`;
-      return `<span class="eta-pill">${mins} 分鐘</span>`;
-    }).join('');
+
+    item.etaRows = rows.map(r => ({ etaMs: new Date(r.eta).getTime() }))
+      .filter(r => Number.isFinite(r.etaMs) && r.etaMs >= now)
+      .sort((a, b) => a.etaMs - b.etaMs)
+      .slice(0, 3);
+    item.nearestEta = item.etaRows.length > 0 ? item.etaRows[0].etaMs : null;
   } catch (e) {
-    if (etasEl) etasEl.innerHTML = '<span class="eta-pill no-data">—</span>';
+    item.etaRows = null;
+    item.nearestEta = null;
   }
 }
 
@@ -2222,6 +2296,7 @@ function startRefresh() {
 }
 
 function stopRefresh() {
+  etaRefreshToken++;
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
 }
 
@@ -2364,6 +2439,7 @@ function importFromUrl() {
   for (const it of incoming) {
     if (!it || !it.route || !it.stopId) continue;
     const item = { company: 'KMB', starred: false, ...it };
+    if (!Number.isFinite(Number(item.boardOrder))) item.boardOrder = nextBoardOrder();
     const dup = board.find(b =>
       b.route === item.route && b.company === item.company &&
       b.dir === item.dir && b.stopId === item.stopId);
