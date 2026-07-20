@@ -833,7 +833,7 @@
     align-items: baseline;
     gap: 10px;
     margin-bottom: 3px;
-    padding-right: 68px;
+    padding-right: 96px;
   }
 
   .board-route {
@@ -858,7 +858,7 @@
     font-size: 0.68rem;
     color: var(--muted);
     margin-bottom: 8px;
-    padding-right: 68px;
+    padding-right: 96px;
   }
 
   .board-etas { display: flex; gap: 7px; flex-wrap: wrap; }
@@ -911,6 +911,23 @@
   }
 
   .board-star.starred { color: #f59e0b; }
+
+  .board-reminder {
+    position: absolute;
+    top: 9px;
+    right: 64px;
+    background: none;
+    border: none;
+    font-size: 1.05rem;
+    color: var(--muted);
+    cursor: pointer;
+    padding: 2px 4px;
+    touch-action: manipulation;
+    line-height: 1;
+    z-index: 1;
+  }
+
+  .board-reminder.active { color: var(--orange); }
 
   .board-del {
     background: none;
@@ -1329,6 +1346,8 @@ async function mockFetch(url) {
 // ═══════════════════════════════════════════════════════════
 const KMB_API = 'https://data.etabus.gov.hk/v1/transport/kmb';
 const CTB_API = 'https://rt.data.gov.hk/v1/transport/citybus-nwfb';
+const REMIND_LEAD_MIN = 3;
+const REMIND_LEAD_MS = REMIND_LEAD_MIN * 60000;
 
 let typed = '';
 let board = [];
@@ -1391,6 +1410,8 @@ function cleanName(name) {
 
 /* BOARD_LOGIC_START */
 const BoardLogic = (() => {
+  const REARM_TOLERANCE_MS = 90_000;
+
   function finiteNumber(value) {
     if (value === null || value === undefined || value === '') return null;
     const number = Number(value);
@@ -1423,7 +1444,49 @@ const BoardLogic = (() => {
     return keyA.localeCompare(keyB, undefined, { numeric: true });
   }
 
-  return { compareBoardItems };
+  function evaluateReminder(state, now) {
+    const reminder = state || {};
+    if (reminder.remindMe !== true) {
+      return { shouldNotify: false, notifiedEta: null, minutes: null };
+    }
+
+    const nearestEta = finiteNumber(reminder.nearestEta);
+    if (nearestEta === null) {
+      // An unavailable nearest bus cannot be identified reliably. Reset the
+      // latch so a later, distinct API result can arm a new notification.
+      return { shouldNotify: false, notifiedEta: null, minutes: null };
+    }
+
+    const nowMs = finiteNumber(now);
+    const leadMs = finiteNumber(reminder.leadMs);
+    if (nowMs === null || leadMs === null) {
+      return { shouldNotify: false, notifiedEta: finiteNumber(reminder.notifiedEta), minutes: null };
+    }
+
+    const minutes = (nearestEta - nowMs) / 60000;
+    const notifiedEta = finiteNumber(reminder.notifiedEta);
+    const sameBus = notifiedEta !== null &&
+      Math.abs(nearestEta - notifiedEta) <= REARM_TOLERANCE_MS;
+    const newerBus = notifiedEta === null ||
+      nearestEta > notifiedEta + REARM_TOLERANCE_MS;
+
+    // Small ETA drift is the same bus. An earlier estimate outside the
+    // tolerance is also held by the latch; only a distinctly later arrival
+    // can re-arm it after the notified bus has passed.
+    if (sameBus || (notifiedEta !== null && !newerBus)) {
+      return { shouldNotify: false, notifiedEta, minutes };
+    }
+
+    if (minutes <= leadMs / 60000) {
+      return { shouldNotify: true, notifiedEta: nearestEta, minutes };
+    }
+
+    // A later bus is now the nearest one but is not yet within the lead time.
+    // Clear the old latch so it can fire when this bus reaches the threshold.
+    return { shouldNotify: false, notifiedEta: null, minutes };
+  }
+
+  return { compareBoardItems, evaluateReminder, REARM_TOLERANCE_MS };
 })();
 /* BOARD_LOGIC_END */
 
@@ -1434,11 +1497,12 @@ function loadBoard() {
   try {
     const stored = JSON.parse(localStorage.getItem('kmb_board') || '[]');
     board = Array.isArray(stored) ? stored.map((b, i) => {
-      const { nearestEta, etaRows, ...persistent } = b || {};
+      const { nearestEta, etaRows, remindNotifiedEta, ...persistent } = b || {};
       const boardOrder = Number(persistent.boardOrder);
       return {
         company: 'KMB',
         ...persistent,
+        remindMe: persistent.remindMe === true,
         boardOrder: Number.isFinite(boardOrder) ? boardOrder : i
       };
     }) : [];
@@ -1450,8 +1514,8 @@ function loadBoard() {
 
 function saveBoard() {
   const persistentBoard = board.map(item => {
-    const { nearestEta, etaRows, ...persistent } = item;
-    return persistent;
+    const { nearestEta, etaRows, remindNotifiedEta, ...persistent } = item;
+    return { ...persistent, remindMe: item.remindMe === true };
   });
   localStorage.setItem('kmb_board', JSON.stringify(persistentBoard));
 }
@@ -2144,7 +2208,7 @@ async function loadNearbyRoutes(stopId) {
 function addBoardItem(route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
   const dup = board.find(b => b.route === route && b.company === company && b.dir === dir && b.stopId === stopId);
   if (!dup) {
-    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred, boardOrder: nextBoardOrder() });
+    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred, remindMe: false, boardOrder: nextBoardOrder() });
     saveBoard();
   } else if (starred && !dup.starred) {
     dup.starred = true;
@@ -2207,6 +2271,7 @@ function renderBoard() {
           <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/>
         </svg>
       </button>
+      <button type="button" class="board-reminder${item.remindMe ? ' active' : ''}" data-idx="${i}" title="${item.remindMe ? '取消到站提示' : '設定到站提示（只限開啟頁面時）'} · ${item.remindMe ? 'Disable while-open arrival reminder' : 'Enable arrival reminder while this page is open'}" aria-pressed="${item.remindMe ? 'true' : 'false'}">${item.remindMe ? '🔔' : '🔕'}</button>
       <button type="button" class="board-star${item.starred ? ' starred' : ''}" data-idx="${i}" title="${item.starred ? '取消常用' : '設為常用'}">${item.starred ? '★' : '☆'}</button>
       <button type="button" class="board-del" data-idx="${i}">✕ 移除</button>
     </div>
@@ -2214,12 +2279,24 @@ function renderBoard() {
 
   el.querySelectorAll('.board-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.board-star, .board-del')) return;
+      if (e.target.closest('.board-star, .board-reminder, .board-del, .board-share')) return;
       const i = +card.dataset.idx;
       const item = board[i];
       stopRefresh();
       stopScreenOrigin = 'board';
       openStopScreen(item.route, item.company || 'KMB', item.dir);
+    });
+  });
+
+  el.querySelectorAll('.board-reminder').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const i = +btn.dataset.idx;
+      board[i].remindMe = !board[i].remindMe;
+      if (board[i].remindMe) requestReminderPermission();
+      else board[i].remindNotifiedEta = null;
+      saveBoard();
+      renderBoard();
     });
   });
 
@@ -2252,6 +2329,37 @@ function renderBoard() {
   });
 }
 
+let reminderPermissionRequested = false;
+
+function requestReminderPermission() {
+  if (reminderPermissionRequested || typeof Notification === 'undefined' ||
+      Notification.permission !== 'default' ||
+      typeof Notification.requestPermission !== 'function') return;
+
+  reminderPermissionRequested = true;
+  try {
+    const request = Notification.requestPermission();
+    if (request && typeof request.catch === 'function') request.catch(() => {});
+  } catch {}
+}
+
+function fireArrivalReminder(item) {
+  const route = item.route || '巴士';
+  const stop = item.stopName || item.stopId || '此站';
+  const message = `🚌 ${route} 即將到站 ${stop} · Route ${route} arriving at ${stop}`;
+  toast(message);
+
+  if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+    try { navigator.vibrate([200, 100, 200]); } catch {}
+  }
+
+  if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+    try {
+      new Notification(`🚌 ${route} 即將到站 · Route ${route} arriving`, { body: `${stop} · 即將到站 · Arriving at ${stop}` });
+    } catch {}
+  }
+}
+
 async function refreshETAs() {
   const token = ++etaRefreshToken;
   const snapshot = board.slice();
@@ -2261,6 +2369,19 @@ async function refreshETAs() {
   // Re-apply the ordering only after the complete board snapshot has been
   // fetched, so cards cannot move one-by-one as individual requests resolve.
   board.sort(BoardLogic.compareBoardItems);
+
+  const nowMs = Date.now();
+  for (const item of board) {
+    const decision = BoardLogic.evaluateReminder({
+      remindMe: item.remindMe,
+      nearestEta: item.nearestEta,
+      leadMs: REMIND_LEAD_MS,
+      notifiedEta: item.remindNotifiedEta
+    }, nowMs);
+    item.remindNotifiedEta = decision.notifiedEta;
+    if (decision.shouldNotify) fireArrivalReminder(item);
+  }
+
   renderBoard();
 
   const now = new Date();
@@ -2438,7 +2559,7 @@ function importFromUrl() {
   let added = 0;
   for (const it of incoming) {
     if (!it || !it.route || !it.stopId) continue;
-    const item = { company: 'KMB', starred: false, ...it };
+    const item = { company: 'KMB', starred: false, ...it, remindMe: false };
     if (!Number.isFinite(Number(item.boardOrder))) item.boardOrder = nextBoardOrder();
     const dup = board.find(b =>
       b.route === item.route && b.company === item.company &&
