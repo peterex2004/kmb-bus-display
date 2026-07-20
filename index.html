@@ -1408,6 +1408,7 @@ let pendingDir   = null;
 let stopScreenOrigin = 'sel';      // 'sel' | 'board'
 let editMode     = false;
 let refreshTimer = null;
+let staleTickTimer = null;
 let etaRefreshToken = 0;
 let lastSuccessMs = null;
 
@@ -2354,13 +2355,32 @@ function formatFreshnessAge(ageMs) {
   return `更新於 ${minutes} 分鐘前 · Updated ${minutes}m ago`;
 }
 
+function startStaleTick() {
+  if (typeof document === 'undefined') return;
+  if (staleTickTimer !== null) clearInterval(staleTickTimer);
+  staleTickTimer = setInterval(() => {
+    renderFreshnessStatus(Date.now(), board.length > 0);
+  }, 1000);
+}
+
+function stopStaleTick() {
+  if (staleTickTimer !== null) {
+    clearInterval(staleTickTimer);
+    staleTickTimer = null;
+  }
+}
+
 function renderFreshnessStatus(nowMs, hasBoardItems) {
   if (typeof document === 'undefined') return;
   const statusEl = document.getElementById('last-update');
-  if (!statusEl) return;
+  if (!statusEl) {
+    stopStaleTick();
+    return;
+  }
   const headerEl = statusEl.closest ? statusEl.closest('.board-header') : null;
 
   if (!hasBoardItems) {
+    stopStaleTick();
     statusEl.textContent = '';
     statusEl.classList.remove('stale');
     if (headerEl) headerEl.classList.remove('stale');
@@ -2381,6 +2401,8 @@ function renderFreshnessStatus(nowMs, hasBoardItems) {
   }
   statusEl.classList.toggle('stale', freshness.stale);
   if (headerEl) headerEl.classList.toggle('stale', freshness.stale);
+  if (freshness.stale) startStaleTick();
+  else stopStaleTick();
 }
 
 function renderBoard() {

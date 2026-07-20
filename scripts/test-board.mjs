@@ -75,6 +75,26 @@ assert.equal(older.ageMs > newer.ageMs, true, 'an older successful refresh has a
 
 console.log('PASS: freshness logic regression tests');
 
+const freshnessAgeStart = html.indexOf('function formatFreshnessAge');
+const freshnessAgeEnd = html.indexOf('function renderFreshnessStatus', freshnessAgeStart);
+assert.notEqual(freshnessAgeStart, -1, 'production formatFreshnessAge function is present');
+assert.notEqual(freshnessAgeEnd, -1, 'production formatFreshnessAge boundary is present');
+
+const freshnessAgeContext = vm.createContext({});
+const freshnessAgeSource = html.slice(freshnessAgeStart, freshnessAgeEnd) +
+  '\nglobalThis.__formatFreshnessAge = formatFreshnessAge;';
+new vm.Script(freshnessAgeSource, { filename: 'index.html#formatFreshnessAge' })
+  .runInContext(freshnessAgeContext);
+const formatFreshnessAge = freshnessAgeContext.__formatFreshnessAge;
+assert.equal(formatFreshnessAge(0), '更新於 0 秒前 · Updated 0s ago', 'freshness age formats zero seconds');
+assert.equal(formatFreshnessAge(59_000), '更新於 59 秒前 · Updated 59s ago', 'freshness age formats 59 seconds');
+assert.equal(formatFreshnessAge(60_000), '更新於 1 分鐘前 · Updated 1m ago', 'freshness age rolls over at one minute');
+assert.equal(formatFreshnessAge(119_000), '更新於 1 分鐘前 · Updated 1m ago', 'freshness age floors 119 seconds to one minute');
+assert.equal(formatFreshnessAge(120_000), '更新於 2 分鐘前 · Updated 2m ago', 'freshness age formats two minutes');
+assert.equal(formatFreshnessAge(-5_000), '更新於 0 秒前 · Updated 0s ago', 'freshness age clamps negative values to zero');
+
+console.log('PASS: freshness age formatting boundary tests');
+
 assert.equal(typeof logic.evaluateReminder, 'function', 'BoardLogic exports evaluateReminder');
 assert.equal(logic.REARM_TOLERANCE_MS, 90_000, 'reminder re-arm tolerance is pinned');
 assert.deepEqual(Array.from(logic.REMINDER_LEADS), [3, 5, 10], 'reminder leads are pinned in order');
