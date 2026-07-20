@@ -21,10 +21,28 @@ standing list. Item numbers are stable labels, not priority.
 - **#5 — Per-card reminder lead time** (PR #5) — single bell cycles
   Off → 3 → 5 → 10 → Off via pure `BoardLogic.nextReminderLead`; per-card
   `remindLeadMin` drives the existing reminder fire logic; persisted + backfilled.
+- **#6 — Reminder re-arm hardening** (PR #6, was Candidate C) — a transient
+  `nearestEta === null` gap no longer resets the latch, so an already-notified
+  bus doesn't double-fire when its ETA returns; genuine re-arm preserved. Pure
+  one-branch change in `BoardLogic.evaluateReminder` + pinned no-duplicate-fire
+  tests.
+- **#7 — Stale-banner 1s tick** (PR #7, was Candidate B) — a display-only 1s
+  timer re-renders the freshness line only while stale (self-stopping on
+  recovery/empty; no fetch-cadence change). **Honest scope note:** because the
+  board is only "stale" at age ≥ 60s (`STALE_AFTER_MS`) and `formatFreshnessAge`
+  shows minutes from 60s, the banner stays in the *minutes* range while stale —
+  so the tick sharpens the minute rollover (lands within ~1s of the true
+  boundary) rather than showing per-second *seconds*. Making seconds visible
+  would need a deliberate #4 threshold/formatter change (not done).
+- **#8 — Visibility-aware refresh** (PR #8, was Candidate D) — on tab hide,
+  pauses both the 15s refresh loop and the #7 stale tick (zero background
+  network); on show, resumes with one immediate refresh + the 15s cadence, but
+  only while the board screen is active. Pure `BoardLogic.shouldRunBackground`
+  predicate + pinned truth table. Visibility only (no Battery/Page-Lifecycle).
 
 ## In flight
 
-- _(none — PR #5 merged)_
+- _(none — PRs #6/#7/#8 merged)_
 
 ---
 
@@ -43,21 +61,7 @@ Reopening requires a human architecture decision (see
 that commits a slimmed `fares.json`, or (C) approve a third-party dataset
 (`hkbus/hk-bus-crawling`). Until then: **descoped**. Risk if reopened: MEDIUM.
 
-### B. Per-second stale-age text
-#4 MINOR follow-up: the stale "Xs ago" text currently ticks in 15s steps (the
-refresh cadence). Drive a lightweight 1s timer while stale so the age counts
-down per second, without changing the 15s fetch cadence. Risk: LOW.
-
-### C. Reminder re-arm hardening
-#3 MINOR follow-up: a transient `nearestEta === null` (brief data gap) can reset
-the reminder latch, allowing a duplicate fire when data returns. Harden re-arm
-to tolerate short null gaps. Pure-function change in `evaluateReminder` +
-pinned tests. Risk: LOW–MEDIUM (touches fire logic — test carefully).
-
-### D. Battery / visibility-aware refresh
-Pause the 15s refresh loop when the tab/screen is hidden
-(`document.visibilitychange`); resume + immediate refresh on focus. Kiosk power
-saving; must not break freshness/reminder semantics. Risk: LOW–MEDIUM.
+_(Candidates B, C, D shipped as #7, #6, #8 respectively — see "Shipped" above.)_
 
 ### E. Manual card reorder
 Drag-to-reorder within the existing edit mode (order is currently ETA-driven
