@@ -957,9 +957,25 @@
     touch-action: manipulation;
     line-height: 1;
     z-index: 1;
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
   }
 
   .board-reminder.active { color: var(--orange); }
+
+  .board-reminder-lead {
+    background: var(--orange-bg);
+    border: 1px solid var(--orange-border);
+    border-radius: 4px;
+    color: var(--orange);
+    font-size: 0.56rem;
+    font-weight: 700;
+    line-height: 1;
+    min-width: 1.15em;
+    padding: 2px 3px;
+    text-align: center;
+  }
 
   .board-del {
     background: none;
@@ -1444,6 +1460,7 @@ function cleanName(name) {
 /* BOARD_LOGIC_START */
 const BoardLogic = (() => {
   const REARM_TOLERANCE_MS = 90_000;
+  const REMINDER_LEADS = Object.freeze([3, 5, 10]);
   // A 60-second window covers several 15-second refresh cycles while still
   // warning promptly when the board has stopped receiving usable data.
   const STALE_AFTER_MS = 60_000;
@@ -1478,6 +1495,16 @@ const BoardLogic = (() => {
     const keyA = `${a.company || 'KMB'}:${a.route || ''}:${a.stopId || ''}:${a.dir || ''}`;
     const keyB = `${b.company || 'KMB'}:${b.route || ''}:${b.stopId || ''}:${b.dir || ''}`;
     return keyA.localeCompare(keyB, undefined, { numeric: true });
+  }
+
+  function nextReminderLead(currentLeadMin) {
+    const currentIndex = REMINDER_LEADS.indexOf(Number(currentLeadMin));
+    if (currentIndex === REMINDER_LEADS.length - 1) {
+      return { remindMe: false, remindLeadMin: null };
+    }
+
+    const nextLead = REMINDER_LEADS[currentIndex + 1] || REMINDER_LEADS[0];
+    return { remindMe: true, remindLeadMin: nextLead };
   }
 
   function evaluateReminder(state, now) {
@@ -1541,8 +1568,10 @@ const BoardLogic = (() => {
 
   return {
     compareBoardItems,
+    nextReminderLead,
     evaluateReminder,
     evaluateFreshness,
+    REMINDER_LEADS,
     REARM_TOLERANCE_MS,
     STALE_AFTER_MS
   };
@@ -1558,10 +1587,15 @@ function loadBoard() {
     board = Array.isArray(stored) ? stored.map((b, i) => {
       const { nearestEta, etaRows, remindNotifiedEta, ...persistent } = b || {};
       const boardOrder = Number(persistent.boardOrder);
+      const persistedLeadMin = Number(persistent.remindLeadMin);
+      const remindLeadMin = BoardLogic.REMINDER_LEADS.includes(persistedLeadMin)
+        ? persistedLeadMin
+        : REMIND_LEAD_MIN;
       return {
         company: 'KMB',
         ...persistent,
         remindMe: persistent.remindMe === true,
+        remindLeadMin,
         boardOrder: Number.isFinite(boardOrder) ? boardOrder : i
       };
     }) : [];
@@ -1574,7 +1608,11 @@ function loadBoard() {
 function saveBoard() {
   const persistentBoard = board.map(item => {
     const { nearestEta, etaRows, remindNotifiedEta, ...persistent } = item;
-    return { ...persistent, remindMe: item.remindMe === true };
+    return {
+      ...persistent,
+      remindMe: item.remindMe === true,
+      remindLeadMin: item.remindLeadMin
+    };
   });
   localStorage.setItem('kmb_board', JSON.stringify(persistentBoard));
 }
@@ -2267,7 +2305,7 @@ async function loadNearbyRoutes(stopId) {
 function addBoardItem(route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred = false) {
   const dup = board.find(b => b.route === route && b.company === company && b.dir === dir && b.stopId === stopId);
   if (!dup) {
-    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred, remindMe: false, boardOrder: nextBoardOrder() });
+    board.push({ route, company, dir, serviceType, stopId, stopSeq, stopName, destTc, starred, remindMe: false, remindLeadMin: REMIND_LEAD_MIN, boardOrder: nextBoardOrder() });
     saveBoard();
   } else if (starred && !dup.starred) {
     dup.starred = true;
@@ -2360,7 +2398,12 @@ function renderBoard() {
     return;
   }
 
-  el.innerHTML = board.map((item, i) => `
+  el.innerHTML = board.map((item, i) => {
+    const leadMin = item.remindLeadMin || REMIND_LEAD_MIN;
+    const reminderTitle = item.remindMe
+      ? `到站前 ${leadMin} 分鐘提示 · Reminder ${leadMin} min before arrival`
+      : '設定到站提示（只限開啟頁面時） · Enable arrival reminder while this page is open';
+    return `
     <div class="board-card${item.starred ? ' starred-card' : ''}" data-idx="${i}">
       <div class="board-card-top">
         <span class="board-route">${item.route}</span>
@@ -2377,11 +2420,12 @@ function renderBoard() {
           <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/>
         </svg>
       </button>
-      <button type="button" class="board-reminder${item.remindMe ? ' active' : ''}" data-idx="${i}" title="${item.remindMe ? '取消到站提示' : '設定到站提示（只限開啟頁面時）'} · ${item.remindMe ? 'Disable while-open arrival reminder' : 'Enable arrival reminder while this page is open'}" aria-pressed="${item.remindMe ? 'true' : 'false'}">${item.remindMe ? '🔔' : '🔕'}</button>
+      <button type="button" class="board-reminder${item.remindMe ? ' active' : ''}" data-idx="${i}" title="${reminderTitle}" aria-pressed="${item.remindMe ? 'true' : 'false'}">${item.remindMe ? `🔔<span class="board-reminder-lead">${leadMin}</span>` : '🔕'}</button>
       <button type="button" class="board-star${item.starred ? ' starred' : ''}" data-idx="${i}" title="${item.starred ? '取消常用' : '設為常用'}">${item.starred ? '★' : '☆'}</button>
       <button type="button" class="board-del" data-idx="${i}">✕ 移除</button>
     </div>
-  `).join('');
+  `;
+  }).join('');
 
   el.querySelectorAll('.board-card').forEach(card => {
     card.addEventListener('click', e => {
@@ -2398,9 +2442,12 @@ function renderBoard() {
     btn.addEventListener('click', e => {
       e.stopPropagation();
       const i = +btn.dataset.idx;
-      board[i].remindMe = !board[i].remindMe;
-      if (board[i].remindMe) requestReminderPermission();
-      else board[i].remindNotifiedEta = null;
+      const wasArmed = board[i].remindMe === true;
+      const next = BoardLogic.nextReminderLead(wasArmed ? board[i].remindLeadMin : null);
+      board[i].remindMe = next.remindMe;
+      board[i].remindLeadMin = next.remindLeadMin;
+      if (!wasArmed && next.remindMe) requestReminderPermission();
+      if (!next.remindMe) board[i].remindNotifiedEta = null;
       saveBoard();
       renderBoard();
     });
@@ -2487,7 +2534,7 @@ async function refreshETAs() {
     const decision = BoardLogic.evaluateReminder({
       remindMe: item.remindMe,
       nearestEta: item.nearestEta,
-      leadMs: REMIND_LEAD_MS,
+      leadMs: (item.remindLeadMin || REMIND_LEAD_MIN) * 60000,
       notifiedEta: item.remindNotifiedEta
     }, nowMs);
     item.remindNotifiedEta = decision.notifiedEta;
@@ -2670,7 +2717,7 @@ function importFromUrl() {
   let added = 0;
   for (const it of incoming) {
     if (!it || !it.route || !it.stopId) continue;
-    const item = { company: 'KMB', starred: false, ...it, remindMe: false };
+    const item = { company: 'KMB', starred: false, ...it, remindMe: false, remindLeadMin: REMIND_LEAD_MIN };
     if (!Number.isFinite(Number(item.boardOrder))) item.boardOrder = nextBoardOrder();
     const dup = board.find(b =>
       b.route === item.route && b.company === item.company &&
