@@ -44,6 +44,14 @@ assert.equal(
 
 console.log('PASS: board ordering regression tests');
 
+assert.equal(typeof logic.shouldRunBackground, 'function', 'BoardLogic exports shouldRunBackground');
+assert.equal(logic.shouldRunBackground(false, true), true, 'visible active board runs background work');
+assert.equal(logic.shouldRunBackground(false, false), false, 'visible inactive board does not run background work');
+assert.equal(logic.shouldRunBackground(true, true), false, 'hidden active board does not run background work');
+assert.equal(logic.shouldRunBackground(true, false), false, 'hidden inactive board does not run background work');
+
+console.log('PASS: visibility background predicate truth table');
+
 assert.equal(typeof logic.evaluateFreshness, 'function', 'BoardLogic exports evaluateFreshness');
 assert.equal(logic.STALE_AFTER_MS, 60_000, 'freshness threshold is pinned at 60 seconds');
 
