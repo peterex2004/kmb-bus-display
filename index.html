@@ -1466,6 +1466,10 @@ const BoardLogic = (() => {
   // warning promptly when the board has stopped receiving usable data.
   const STALE_AFTER_MS = 60_000;
 
+  function shouldRunBackground(hidden, boardActive) {
+    return !hidden && !!boardActive;
+  }
+
   function finiteNumber(value) {
     if (value === null || value === undefined || value === '') return null;
     const number = Number(value);
@@ -1572,6 +1576,7 @@ const BoardLogic = (() => {
     nextReminderLead,
     evaluateReminder,
     evaluateFreshness,
+    shouldRunBackground,
     REMINDER_LEADS,
     REARM_TOLERANCE_MS,
     STALE_AFTER_MS
@@ -2601,6 +2606,19 @@ function stopRefresh() {
   if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
 }
 
+function handleVisibilityChange() {
+  if (typeof document === 'undefined') return;
+  const hidden = document.hidden;
+  const boardActive = !!(document.getElementById('disp-screen') &&
+    document.getElementById('disp-screen').classList.contains('active'));
+  if (!BoardLogic.shouldRunBackground(hidden, boardActive)) {
+    stopRefresh();
+    stopStaleTick();
+    return;
+  }
+  startRefresh();
+}
+
 function toggleEditMode() {
   editMode = !editMode;
   document.getElementById('board-rows').classList.toggle('edit-mode', editMode);
@@ -2610,6 +2628,10 @@ function toggleEditMode() {
 // ═══════════════════════════════════════════════════════════
 // EVENTS
 // ═══════════════════════════════════════════════════════════
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', handleVisibilityChange);
+}
+
 document.getElementById('btn-enter-app').addEventListener('click', () => {
   const intro = document.getElementById('intro-screen');
   intro.style.opacity = '0';
