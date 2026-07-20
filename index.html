@@ -1515,9 +1515,9 @@ const BoardLogic = (() => {
 
     const nearestEta = finiteNumber(reminder.nearestEta);
     if (nearestEta === null) {
-      // An unavailable nearest bus cannot be identified reliably. Reset the
-      // latch so a later, distinct API result can arm a new notification.
-      return { shouldNotify: false, notifiedEta: null, minutes: null };
+      // Hold the notified-bus latch through a transient data gap so the same
+      // bus does not trigger a duplicate reminder when its ETA returns.
+      return { shouldNotify: false, notifiedEta: finiteNumber(reminder.notifiedEta), minutes: null };
     }
 
     const nowMs = finiteNumber(now);
