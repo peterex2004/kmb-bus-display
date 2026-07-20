@@ -760,7 +760,39 @@
 
   .board-header-btns { display: flex; gap: 8px; align-items: center; }
 
-  #last-update { font-size: 0.65rem; color: var(--muted); }
+  #last-update {
+    font-size: 0.65rem;
+    color: var(--muted);
+    line-height: 1.35;
+    min-width: 0;
+    max-width: 180px;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  #last-update.stale {
+    color: var(--orange);
+    background: var(--orange-bg);
+    border: 1px solid var(--orange-border);
+    border-radius: 4px;
+    padding: 2px 4px;
+    font-weight: 600;
+  }
+
+  /* Give the warning its own row so the bilingual message does not crowd
+     the board controls on a narrow phone or tablet header. */
+  .board-header.stale { flex-wrap: wrap; row-gap: 5px; }
+  .board-header.stale .board-header-btns {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+    row-gap: 5px;
+  }
+  .board-header.stale #last-update {
+    flex: 1 0 100%;
+    order: -1;
+    max-width: none;
+    text-align: left;
+  }
 
   #btn-board-edit {
     background: none;
@@ -1361,6 +1393,7 @@ let stopScreenOrigin = 'sel';      // 'sel' | 'board'
 let editMode     = false;
 let refreshTimer = null;
 let etaRefreshToken = 0;
+let lastSuccessMs = null;
 
 // Stop screen ETA state
 let currentStopList  = [];
@@ -1411,6 +1444,9 @@ function cleanName(name) {
 /* BOARD_LOGIC_START */
 const BoardLogic = (() => {
   const REARM_TOLERANCE_MS = 90_000;
+  // A 60-second window covers several 15-second refresh cycles while still
+  // warning promptly when the board has stopped receiving usable data.
+  const STALE_AFTER_MS = 60_000;
 
   function finiteNumber(value) {
     if (value === null || value === undefined || value === '') return null;
@@ -1486,7 +1522,30 @@ const BoardLogic = (() => {
     return { shouldNotify: false, notifiedEta: null, minutes };
   }
 
-  return { compareBoardItems, evaluateReminder, REARM_TOLERANCE_MS };
+  function evaluateFreshness({ lastSuccessMs, now, staleAfterMs = STALE_AFTER_MS } = {}) {
+    const successMs = finiteNumber(lastSuccessMs);
+    if (successMs === null) {
+      // No successful fetch yet is an initial state, not evidence of stale data.
+      return { stale: false, ageMs: null };
+    }
+
+    const nowMs = finiteNumber(now);
+    const thresholdMs = finiteNumber(staleAfterMs);
+    if (nowMs === null || thresholdMs === null) {
+      return { stale: false, ageMs: null };
+    }
+
+    const ageMs = nowMs - successMs;
+    return { stale: ageMs >= thresholdMs, ageMs };
+  }
+
+  return {
+    compareBoardItems,
+    evaluateReminder,
+    evaluateFreshness,
+    REARM_TOLERANCE_MS,
+    STALE_AFTER_MS
+  };
 })();
 /* BOARD_LOGIC_END */
 
@@ -2243,6 +2302,49 @@ function renderBoardEta(item) {
   }).join('');
 }
 
+function formatUpdateTime(timestampMs) {
+  const date = new Date(timestampMs);
+  return `更新 ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}:${date.getSeconds().toString().padStart(2, '0')}`;
+}
+
+function formatFreshnessAge(ageMs) {
+  const seconds = Math.max(0, Math.floor(ageMs / 1000));
+  if (seconds < 60) {
+    return `更新於 ${seconds} 秒前 · Updated ${seconds}s ago`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  return `更新於 ${minutes} 分鐘前 · Updated ${minutes}m ago`;
+}
+
+function renderFreshnessStatus(nowMs, hasBoardItems) {
+  if (typeof document === 'undefined') return;
+  const statusEl = document.getElementById('last-update');
+  if (!statusEl) return;
+  const headerEl = statusEl.closest ? statusEl.closest('.board-header') : null;
+
+  if (!hasBoardItems) {
+    statusEl.textContent = '';
+    statusEl.classList.remove('stale');
+    if (headerEl) headerEl.classList.remove('stale');
+    return;
+  }
+
+  const freshness = BoardLogic.evaluateFreshness({
+    lastSuccessMs,
+    now: nowMs,
+    staleAfterMs: BoardLogic.STALE_AFTER_MS
+  });
+  if (freshness.stale) {
+    statusEl.textContent = `⚠ 資料可能過時 · Data may be stale · ${formatFreshnessAge(freshness.ageMs)}`;
+  } else if (lastSuccessMs !== null) {
+    statusEl.textContent = formatUpdateTime(lastSuccessMs);
+  } else {
+    statusEl.textContent = '';
+  }
+  statusEl.classList.toggle('stale', freshness.stale);
+  if (headerEl) headerEl.classList.toggle('stale', freshness.stale);
+}
+
 function renderBoard() {
   document.getElementById('btn-board-edit').textContent = editMode ? '完成' : '編輯';
   const el = document.getElementById('board-rows');
@@ -2250,6 +2352,10 @@ function renderBoard() {
   board.sort(BoardLogic.compareBoardItems);
 
   if (board.length === 0) {
+    // A previous board's timestamp is not meaningful once there is nothing
+    // left to fetch. The next added board starts with no successful refresh.
+    lastSuccessMs = null;
+    renderFreshnessStatus(Date.now(), false);
     el.innerHTML = '<div class="board-empty">未有路線。<br>點擊「＋ 新增」以新增路線。</div>';
     return;
   }
@@ -2363,14 +2469,20 @@ function fireArrivalReminder(item) {
 async function refreshETAs() {
   const token = ++etaRefreshToken;
   const snapshot = board.slice();
-  await Promise.allSettled(snapshot.map(item => fetchETA(item)));
+  const fetchResults = await Promise.allSettled(snapshot.map(item => fetchETA(item)));
   if (token !== etaRefreshToken) return;
+
+  const cycleOk = board.length > 0 && fetchResults.some(result =>
+    result.status === 'fulfilled' && result.value === true
+  );
+  const nowMs = Date.now();
+  if (cycleOk) lastSuccessMs = nowMs;
+  if (board.length === 0) lastSuccessMs = null;
 
   // Re-apply the ordering only after the complete board snapshot has been
   // fetched, so cards cannot move one-by-one as individual requests resolve.
   board.sort(BoardLogic.compareBoardItems);
 
-  const nowMs = Date.now();
   for (const item of board) {
     const decision = BoardLogic.evaluateReminder({
       remindMe: item.remindMe,
@@ -2383,10 +2495,7 @@ async function refreshETAs() {
   }
 
   renderBoard();
-
-  const now = new Date();
-  document.getElementById('last-update').textContent =
-    `更新 ${now.getHours().toString().padStart(2,'0')}:${now.getMinutes().toString().padStart(2,'0')}:${now.getSeconds().toString().padStart(2,'0')}`;
+  renderFreshnessStatus(nowMs, board.length > 0);
 }
 
 async function fetchETA(item) {
@@ -2404,9 +2513,11 @@ async function fetchETA(item) {
       .sort((a, b) => a.etaMs - b.etaMs)
       .slice(0, 3);
     item.nearestEta = item.etaRows.length > 0 ? item.etaRows[0].etaMs : null;
+    return true;
   } catch (e) {
     item.etaRows = null;
     item.nearestEta = null;
+    return false;
   }
 }
 
