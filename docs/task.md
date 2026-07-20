@@ -5,106 +5,88 @@ this file; Codex executes against it. SPEC.md would be the technical source of
 truth but none exists yet — CLAUDE.md governance applies.
 
 ## Objective
-Add an **arrival reminder** to the Departure Board (Screen 3). The user can arm
-a per-card reminder (a bell toggle); while the app is open, when that card's
-nearest upcoming ETA drops to within a lead time (default **3 minutes**), the
-app fires a **foreground alert once per approaching bus**: a browser
-Notification when permission is granted, plus an always-on in-app fallback
-(toast + vibration where supported). Backlog item #3.
+Make the Departure Board honest about data freshness. Today `refreshETAs`
+updates the "更新 HH:MM:SS" clock **every 15s cycle even when every ETA fetch
+failed** (it uses `Promise.allSettled` and always stamps the clock at the end),
+and `fetchETA` silently swallows network errors to `—`. So during an API or
+network outage the board looks freshly-updated while showing stale data. Add a
+**fetch-health / stale-data indicator**: the "updated" time must reflect the
+last *successful* refresh, and when that success is older than a threshold the
+board must clearly signal that its data may be stale.
 
 ## Background
-Market apps (App1933, Citybus, hkbus.app) push arrival alerts. This app is a
-fixed standing board / installable PWA with no backend, so the realistic,
-in-architecture version is a **foreground, while-open reminder** driven by the
-ETA data the board already fetches every 15s. The board item already carries
-`nearestEta` (ms epoch) and `etaRows`; the reminder is a thin, testable layer on
-top of that plus a notification side-effect.
-
-### Scope interpretation — read this
-The backlog title "落車/到站提示" is scoped this round to **arrival-at-the-watched-stop**
-reminder (bus is ~N min from the stop the user is watching). True on-bus "time to
-alight" tracking would need live GPS position along the route while riding — that
-is a heavier, separate feature and is **out of scope** here. State this clearly.
+North Star: **correctness of ETA/route data > simplicity > features**. A board
+that silently shows outdated arrivals as if live is a correctness failure for a
+kiosk the owner glances at. This is a trust/correctness fix, not a new feature
+surface. It reuses data the refresh loop already has.
 
 ## Scope
-- `index.html` — inline `<script>` (board data model, `BoardLogic` seam,
-  `refreshETAs`/render loop, per-card controls) and its inline styles.
-- `scripts/test-board.mjs` — add pinned regression tests for the reminder logic.
+- `index.html` — inline `<script>`: `refreshETAs`, `fetchETA`, the
+  `#last-update` status display, the `BoardLogic` seam, and small inline styles
+  for the stale state.
+- `scripts/test-board.mjs` — add pinned freshness-logic regression tests.
 - `scripts/validate-js.js` — already runs the board test; no change expected.
-- MAY touch `manifest.json` only if strictly needed (it is not expected to be).
 
 ## Out of scope
-- **Background / push notifications** (Web Push, VAPID, service-worker `push`
-  events, waking a closed app). No backend exists; do NOT add one. Reminder is
-  **foreground / while-open only** — say so in the UI/report.
-- True on-bus GPS "alight now" tracking; GMB / green-minibus; new frameworks,
-  bundlers, build step, backend, or any API key/secret.
-- Changing the #1 soonest-first ordering behaviour or its existing tests.
-- Unrelated refactors or restyling beyond what this feature requires.
+- Changing the ETA/route API providers, request cadence (stays 15s), retry/
+  backoff (`apiFetch`), or the per-item ETA rendering semantics
+  (`undefined`=loading, `[]`=no service "暫無班次", `null`=fetch error "—").
+- #1 ordering (`compareBoardItems`) and #3 reminder (`evaluateReminder`)
+  behaviour or their tests.
+- New frameworks/bundlers/build step, backend, API keys, service-worker push.
+- Unrelated refactors or restyling beyond this indicator.
 
 ## Functional requirements
-1. **Per-card arm control.** Each board card gets a reminder toggle (a bell,
-   matching the existing star/remove control pattern and bilingual title). Off
-   by default. State persists in `localStorage` across reloads (via the existing
-   `saveBoard`/`loadBoard` path). Default lead time **3 minutes**.
-2. **Fire condition.** For an armed card, when the nearest upcoming ETA is
-   `<= lead` minutes away (including "arriving now"), fire the alert. Do NOT
-   fire when the card is not armed, or when there is no ETA / data is
-   unavailable.
-3. **Fire once per bus (latch).** Must NOT re-fire every 15s refresh for the
-   same approaching bus. After firing for an arrival, stay silent until that bus
-   passes and a **distinctly later** arrival becomes the nearest one (then
-   re-arm and it may fire again). Use a small tolerance so tiny ETA drift
-   between refreshes is treated as the *same* bus, not a new one.
-4. **Alert channels.** On fire: always show an in-app toast identifying the
-   route + stop (bilingual) and vibrate where `navigator.vibrate` exists; and,
-   if `Notification.permission === 'granted'`, also post a browser
-   `Notification`. Arming a reminder for the first time should request
-   Notification permission once (graceful if denied/unsupported — the toast
-   fallback still works).
-5. **No regression** to add-to-board, star, remove, share, ordering, refresh, or
-   persistence. Runtime-only reminder latch state must NOT leak into the saved
-   board JSON (mirror how `nearestEta`/`etaRows` are stripped in `saveBoard`).
+1. **Success vs failure of a cycle.** `fetchETA` must report whether the fetch
+   itself succeeded (i.e. `apiFetch` resolved) — a stop that legitimately has
+   **zero upcoming buses is still a SUCCESS** (`etaRows = []`), only the `catch`
+   path is a failure. `refreshETAs` must determine, per cycle, whether at least
+   one item's fetch succeeded.
+2. **Truthful "updated" time.** The `#last-update` timestamp must reflect the
+   time of the **last successful** refresh, not merely loop completion. If a
+   whole cycle fails (≥1 board item, all fetches failed), do NOT advance it.
+3. **Stale signal.** When the age of the last successful refresh exceeds a
+   documented threshold (pick a sensible default, e.g. ~60s ≈ several missed
+   cycles), the header must clearly indicate staleness bilingually (e.g.
+   `⚠ 資料可能過時 · Data may be stale` with the age), and optionally a subtle
+   board de-emphasis. When a later cycle succeeds, the indicator clears and the
+   board returns to normal.
+4. **Empty board.** With no board items there is nothing to fetch — do NOT show
+   a stale/error state.
+5. **No regression** to refresh cadence, ordering, reminders, per-item ETA
+   rendering, persistence, or the existing "更新" format on the healthy path.
 
 ## Non-functional requirements
-- Correctness: the fire/latch decision lives in a **pure function in the
-  `BoardLogic` seam** and is pinned to ground truth by regression tests (a
-  passing render is a smoke test, not correctness).
-- i18n: Chinese-first bilingual tone (`中文 · English`) matching existing copy.
-- No build step; single-file architecture preserved.
-- No layout break on the 12" standing screen or on mobile (notch safe-area from
-  v1.7 intact). No performance regression (reminder check is O(n) per refresh).
+- Correctness: the freshness decision (age → stale?) lives in a **pure function
+  in the `BoardLogic` seam** (takes `now` and `lastSuccessMs` as args; no
+  `Date.now()`/DOM inside) and is pinned by regression tests.
+- i18n: Chinese-first bilingual tone matching existing copy.
+- No build step; single-file architecture preserved. O(n) per refresh.
+- No layout break on the 12" board or mobile (notch safe-area intact).
 
 ## Acceptance criteria
-- Validation gate green (below) with the reminder tests **run, not skipped**;
-  existing ordering tests still pass unchanged.
-- `BoardLogic` exports a pure reminder-evaluation function; regression tests
-  assert, at minimum:
-  1. Fires when an armed card's nearest ETA first crosses to `<= lead`.
-  2. Does NOT fire again on the next tick for the same bus (latch holds).
-  3. Re-arms and fires for a distinctly later next bus after the first passes.
-  4. Does NOT fire when the card is unarmed.
-  5. Does NOT fire when nearestEta is null/unavailable.
-  6. Boundary: exactly at the lead threshold fires; clearly above it does not.
-- Reminder arm state round-trips through `localStorage`; latch state does not
-  persist. Board still renders/refreshes; star/remove/share/ordering intact.
+- Validation gate green (below) with the freshness tests **run, not skipped**;
+  existing ordering + reminder tests still pass unchanged.
+- `BoardLogic` exports a pure freshness-evaluation function; tests assert at
+  minimum: fresh when age < threshold; stale when age ≥ threshold; the exact
+  boundary; and the "no successful fetch yet" / null-lastSuccess case behaves
+  per the documented rule (not a false "stale" on first paint).
+- Manual/preview reasoning: on an all-fail cycle the "updated" time does not
+  advance and the stale indicator appears; on recovery it clears.
 
 ## Required validation
 node scripts/validate-js.js
-<!-- Plus the new pinned reminder test(s), wired so they run and fail non-zero
+<!-- Plus the new pinned freshness test(s), wired so they run and fail non-zero
      on regression. If UI changed: manual/preview check in browser. Do NOT
      weaken the definition of "passing". -->
 
 ## Risk classification
-MEDIUM — touches the single production file (persistence schema + render loop +
-new permission side-effect). Proceeds automatically; final merge stays
-human-controlled.
+MEDIUM — touches the core refresh loop of the single production file. Proceeds
+automatically; final merge stays human-controlled.
 
 ## Human approval requirements
-None to proceed. Human owns the final merge (auto-merge off). ESCALATE before
-acting if delivering the reminder would require a backend, Web Push
-infrastructure, or any authenticated/non-public source.
+None to proceed. Human owns the final merge (auto-merge off).
 
 ## Open questions
-- None blocking. If the "fire once per bus" re-arm tolerance needs a specific
-  value, pick a sensible default (document it) rather than escalating.
+- None blocking. Choose and document the stale threshold and the null-lastSuccess
+  behaviour rather than escalating.
