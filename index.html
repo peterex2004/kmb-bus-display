@@ -1411,6 +1411,9 @@ function cleanName(name) {
 /* BOARD_LOGIC_START */
 const BoardLogic = (() => {
   const REARM_TOLERANCE_MS = 90_000;
+  // A 60-second window covers several 15-second refresh cycles while still
+  // warning promptly when the board has stopped receiving usable data.
+  const STALE_AFTER_MS = 60_000;
 
   function finiteNumber(value) {
     if (value === null || value === undefined || value === '') return null;
@@ -1486,7 +1489,30 @@ const BoardLogic = (() => {
     return { shouldNotify: false, notifiedEta: null, minutes };
   }
 
-  return { compareBoardItems, evaluateReminder, REARM_TOLERANCE_MS };
+  function evaluateFreshness({ lastSuccessMs, now, staleAfterMs = STALE_AFTER_MS } = {}) {
+    const successMs = finiteNumber(lastSuccessMs);
+    if (successMs === null) {
+      // No successful fetch yet is an initial state, not evidence of stale data.
+      return { stale: false, ageMs: null };
+    }
+
+    const nowMs = finiteNumber(now);
+    const thresholdMs = finiteNumber(staleAfterMs);
+    if (nowMs === null || thresholdMs === null) {
+      return { stale: false, ageMs: null };
+    }
+
+    const ageMs = nowMs - successMs;
+    return { stale: ageMs >= thresholdMs, ageMs };
+  }
+
+  return {
+    compareBoardItems,
+    evaluateReminder,
+    evaluateFreshness,
+    REARM_TOLERANCE_MS,
+    STALE_AFTER_MS
+  };
 })();
 /* BOARD_LOGIC_END */
 

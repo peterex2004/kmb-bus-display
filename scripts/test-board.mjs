@@ -44,6 +44,37 @@ assert.equal(
 
 console.log('PASS: board ordering regression tests');
 
+assert.equal(typeof logic.evaluateFreshness, 'function', 'BoardLogic exports evaluateFreshness');
+assert.equal(logic.STALE_AFTER_MS, 60_000, 'freshness threshold is pinned at 60 seconds');
+
+const FRESHNESS_NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
+const STALE_AFTER_MS = logic.STALE_AFTER_MS;
+
+function freshness(lastSuccessMs, now = FRESHNESS_NOW) {
+  return logic.evaluateFreshness({ lastSuccessMs, now, staleAfterMs: STALE_AFTER_MS });
+}
+
+const fresh = freshness(FRESHNESS_NOW - STALE_AFTER_MS + 1);
+assert.equal(fresh.stale, false, 'freshness stays fresh below the stale threshold');
+assert.equal(fresh.ageMs, STALE_AFTER_MS - 1, 'freshness reports the exact age below the threshold');
+
+const boundary = freshness(FRESHNESS_NOW - STALE_AFTER_MS);
+assert.equal(boundary.stale, true, 'freshness is stale at the exact threshold boundary');
+assert.equal(boundary.ageMs, STALE_AFTER_MS, 'freshness reports the exact boundary age');
+
+const stale = freshness(FRESHNESS_NOW - STALE_AFTER_MS - 1);
+assert.equal(stale.stale, true, 'freshness remains stale above the threshold');
+
+const noSuccess = freshness(null);
+assert.equal(noSuccess.stale, false, 'no successful refresh yet is not treated as stale');
+assert.equal(noSuccess.ageMs, null, 'no successful refresh yet reports no age');
+
+const newer = freshness(FRESHNESS_NOW - STALE_AFTER_MS - 1);
+const older = freshness(FRESHNESS_NOW - STALE_AFTER_MS - 60_000);
+assert.equal(older.ageMs > newer.ageMs, true, 'an older successful refresh has a larger age');
+
+console.log('PASS: freshness logic regression tests');
+
 assert.equal(typeof logic.evaluateReminder, 'function', 'BoardLogic exports evaluateReminder');
 assert.equal(logic.REARM_TOLERANCE_MS, 90_000, 'reminder re-arm tolerance is pinned');
 
