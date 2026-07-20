@@ -30,11 +30,18 @@ standing list. Item numbers are stable labels, not priority.
 
 ## Candidate items (not yet scoped; human confirms scope + priority)
 
-### A. Fare display (票價)
-Show per-route / per-section fare on each board card. Explicitly **descoped**
-from #1, not dropped — most "officially pending" item. Needs a fare data source
-check (KMB/CTB fare API availability) before scoping. Risk: MEDIUM (new data
-dependency).
+### A. Fare display (票價) — BLOCKED / descoped (2026-07-20)
+Show per-route / per-section fare on each board card. **Blocked: no viable
+official client-side data source.** Verified: fares are not in either real-time
+API (KMB `data.etabus.gov.hk` / Citybus `rt.data.gov.hk` = route/stop/ETA only);
+the sole official source is TD "Routes and fares"
+(`static.data.gov.hk/td/routes-fares-geojson/JSON_BUS.json`) which is **74.8 MB**
+and serves **no CORS** header (browser fetch blocked), updated biweekly. Doing it
+correctly + simply from official client-side sources isn't possible today.
+Reopening requires a human architecture decision (see
+`.agent-output/human-escalation.md`): (B) approve a one-time vendoring/build step
+that commits a slimmed `fares.json`, or (C) approve a third-party dataset
+(`hkbus/hk-bus-crawling`). Until then: **descoped**. Risk if reopened: MEDIUM.
 
 ### B. Per-second stale-age text
 #4 MINOR follow-up: the stale "Xs ago" text currently ticks in 15s steps (the
