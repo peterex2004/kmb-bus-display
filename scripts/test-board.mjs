@@ -159,8 +159,46 @@ const unavailable = logic.evaluateReminder({
   notifiedEta: firstEta
 }, NOW);
 assert.equal(unavailable.shouldNotify, false, 'missing ETA never fires');
-assert.equal(unavailable.notifiedEta, null, 'missing ETA resets the unavailable bus latch');
+assert.equal(unavailable.notifiedEta, firstEta, 'missing ETA preserves the unavailable bus latch');
 assert.equal(unavailable.minutes, null, 'missing ETA has no ETA minutes');
+
+const transientFirst = reminder({ nearestEta: NOW + LEAD_MS - 30_000 });
+assert.equal(transientFirst.shouldNotify, true, 'transient-gap scenario fires the first reminder');
+
+let transientFireCount = transientFirst.shouldNotify ? 1 : 0;
+const transientGap = reminder({
+  nearestEta: null,
+  notifiedEta: transientFirst.notifiedEta
+});
+transientFireCount += transientGap.shouldNotify ? 1 : 0;
+assert.equal(transientGap.shouldNotify, false, 'transient null gap does not fire');
+assert.equal(transientGap.notifiedEta, transientFirst.notifiedEta, 'transient null gap holds the fired latch');
+
+const transientRecovery = reminder({
+  nearestEta: transientFirst.notifiedEta - 30_000,
+  notifiedEta: transientGap.notifiedEta
+}, NOW + 15_000);
+transientFireCount += transientRecovery.shouldNotify ? 1 : 0;
+assert.equal(transientRecovery.shouldNotify, false, 'same bus recovery does not fire a duplicate reminder');
+assert.equal(transientRecovery.notifiedEta, transientFirst.notifiedEta, 'same bus recovery keeps the held latch');
+assert.equal(transientFireCount, 1, 'same bus fires exactly once across a transient null gap');
+
+const laterAfterGapEta = transientFirst.notifiedEta + logic.REARM_TOLERANCE_MS + 60_000;
+const laterAfterGapBeforeLead = reminder({
+  nearestEta: laterAfterGapEta,
+  notifiedEta: transientGap.notifiedEta
+});
+assert.equal(laterAfterGapBeforeLead.shouldNotify, false, 'distinct later bus after a null gap waits for its lead threshold');
+assert.equal(laterAfterGapBeforeLead.notifiedEta, null, 'distinct later bus after a null gap clears the old latch');
+
+const laterAfterGap = reminder({
+  nearestEta: laterAfterGapEta,
+  notifiedEta: laterAfterGapBeforeLead.notifiedEta
+}, laterAfterGapEta - LEAD_MS);
+assert.equal(laterAfterGap.shouldNotify, true, 'distinct later bus after a null gap re-arms at its own threshold');
+assert.equal(laterAfterGap.notifiedEta, laterAfterGapEta, 'distinct later bus after a null gap becomes the new latch');
+
+console.log('PASS: transient-null reminder latch regression tests');
 
 const atBoundary = reminder({ nearestEta: NOW + LEAD_MS });
 assert.equal(atBoundary.shouldNotify, true, 'ETA exactly at the lead threshold fires');
