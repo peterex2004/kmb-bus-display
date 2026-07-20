@@ -5,88 +5,87 @@ this file; Codex executes against it. SPEC.md would be the technical source of
 truth but none exists yet — CLAUDE.md governance applies.
 
 ## Objective
-Make the Departure Board honest about data freshness. Today `refreshETAs`
-updates the "更新 HH:MM:SS" clock **every 15s cycle even when every ETA fetch
-failed** (it uses `Promise.allSettled` and always stamps the clock at the end),
-and `fetchETA` silently swallows network errors to `—`. So during an API or
-network outage the board looks freshly-updated while showing stale data. Add a
-**fetch-health / stale-data indicator**: the "updated" time must reflect the
-last *successful* refresh, and when that success is older than a threshold the
-board must clearly signal that its data may be stale.
+Let each board card choose its own arrival-reminder lead time — **3, 5, or 10
+minutes** — instead of the single global 3-minute default shipped in #3. The
+armed card fires its reminder at its own chosen lead.
 
 ## Background
-North Star: **correctness of ETA/route data > simplicity > features**. A board
-that silently shows outdated arrivals as if live is a correctness failure for a
-kiosk the owner glances at. This is a trust/correctness fix, not a new feature
-surface. It reuses data the refresh loop already has.
+North Star: **correctness of ETA/route data > simplicity > features**. #3 shipped
+a per-card bell at a fixed `REMIND_LEAD_MIN = 3`. A standing kiosk user wants
+more warning for some routes (long walk to the platform) and less for others.
+The pure decision function `BoardLogic.evaluateReminder(state, now)` already
+takes `leadMs` in `state`, so the *fire* logic needs no change — only the
+per-card lead value, the control to set it, and its persistence.
 
 ## Scope
-- `index.html` — inline `<script>`: `refreshETAs`, `fetchETA`, the
-  `#last-update` status display, the `BoardLogic` seam, and small inline styles
-  for the stale state.
-- `scripts/test-board.mjs` — add pinned freshness-logic regression tests.
+- `index.html` inline `<script>`: board item schema (`remindLeadMin`), the bell
+  control + handler, the `refreshETAs` reminder hook (pass per-item `leadMs`), a
+  small pure lead-cycle helper in the `BoardLogic` seam, and small CSS for the
+  lead badge.
+- `scripts/test-board.mjs`: add pinned tests for the lead-cycle helper +
+  lead-driven fire threshold + persistence of `remindLeadMin`.
 - `scripts/validate-js.js` — already runs the board test; no change expected.
 
 ## Out of scope
-- Changing the ETA/route API providers, request cadence (stays 15s), retry/
-  backoff (`apiFetch`), or the per-item ETA rendering semantics
-  (`undefined`=loading, `[]`=no service "暫無班次", `null`=fetch error "—").
-- #1 ordering (`compareBoardItems`) and #3 reminder (`evaluateReminder`)
-  behaviour or their tests.
+- Changing `evaluateReminder`'s latch/re-arm behaviour or the #3 fire channels
+  (toast / vibrate / Notification). Changing #1 ordering (`compareBoardItems`)
+  or #4 freshness (`evaluateFreshness`) logic or their tests.
+- Arbitrary free-entry lead values — only the fixed set {3, 5, 10}.
 - New frameworks/bundlers/build step, backend, API keys, service-worker push.
-- Unrelated refactors or restyling beyond this indicator.
+- Unrelated refactors or restyling.
 
 ## Functional requirements
-1. **Success vs failure of a cycle.** `fetchETA` must report whether the fetch
-   itself succeeded (i.e. `apiFetch` resolved) — a stop that legitimately has
-   **zero upcoming buses is still a SUCCESS** (`etaRows = []`), only the `catch`
-   path is a failure. `refreshETAs` must determine, per cycle, whether at least
-   one item's fetch succeeded.
-2. **Truthful "updated" time.** The `#last-update` timestamp must reflect the
-   time of the **last successful** refresh, not merely loop completion. If a
-   whole cycle fails (≥1 board item, all fetches failed), do NOT advance it.
-3. **Stale signal.** When the age of the last successful refresh exceeds a
-   documented threshold (pick a sensible default, e.g. ~60s ≈ several missed
-   cycles), the header must clearly indicate staleness bilingually (e.g.
-   `⚠ 資料可能過時 · Data may be stale` with the age), and optionally a subtle
-   board de-emphasis. When a later cycle succeeds, the indicator clears and the
-   board returns to normal.
-4. **Empty board.** With no board items there is nothing to fetch — do NOT show
-   a stale/error state.
-5. **No regression** to refresh cadence, ordering, reminders, per-item ETA
-   rendering, persistence, or the existing "更新" format on the healthy path.
+1. **Per-card lead.** Add a persisted `remindLeadMin` (number; default 3). When
+   a card is armed, its reminder fires when the nearest ETA ≤ `remindLeadMin`
+   minutes (drive the existing `evaluateReminder` via a per-item `leadMs`).
+2. **Single-control UX (cycle).** Tapping the bell cycles
+   **Off(🔕) → 3 → 5 → 10 → Off**, arming/disarming and setting the lead in one
+   control. When armed, the card visibly shows the chosen lead (e.g. a small
+   badge/number on or next to 🔔) and the bilingual `title` states it. Disarming
+   (cycling back to Off) clears `remindMe` and its runtime latch (as in #3).
+3. **Pure cycle helper.** The Off→3→5→10→Off transition is a **pure function in
+   the `BoardLogic` seam** (e.g. `nextReminderLead(currentLeadMin | null)`
+   returning the next `{ remindMe, remindLeadMin }`, or the next lead value where
+   null/0 = Off) so the sequence is testable and cannot drift. No `Date.now()` /
+   DOM inside.
+4. **Persistence.** `remindLeadMin` round-trips via `saveBoard` / `loadBoard`;
+   backfill default 3 for armed legacy items lacking it; the runtime latch is
+   still not persisted; `remindLeadMin` is NOT added to `SHARE_KEYS`.
+5. **No regression** to #3 fire/latch behaviour, #1 ordering, #4 freshness, the
+   refresh cadence, per-item ETA rendering, or the existing persistence.
 
 ## Non-functional requirements
-- Correctness: the freshness decision (age → stale?) lives in a **pure function
-  in the `BoardLogic` seam** (takes `now` and `lastSuccessMs` as args; no
-  `Date.now()`/DOM inside) and is pinned by regression tests.
+- Correctness: the cycle helper + the lead-driven fire threshold are pinned to
+  real ground truth in regression tests (vm-extracted `BoardLogic` + real
+  `saveBoard`/`loadBoard`). No build step; single-file architecture preserved;
+  O(n) per refresh.
 - i18n: Chinese-first bilingual tone matching existing copy.
-- No build step; single-file architecture preserved. O(n) per refresh.
 - No layout break on the 12" board or mobile (notch safe-area intact).
 
 ## Acceptance criteria
-- Validation gate green (below) with the freshness tests **run, not skipped**;
-  existing ordering + reminder tests still pass unchanged.
-- `BoardLogic` exports a pure freshness-evaluation function; tests assert at
-  minimum: fresh when age < threshold; stale when age ≥ threshold; the exact
-  boundary; and the "no successful fetch yet" / null-lastSuccess case behaves
-  per the documented rule (not a false "stale" on first paint).
-- Manual/preview reasoning: on an all-fail cycle the "updated" time does not
-  advance and the stale indicator appears; on recovery it clears.
+- Validation gate green (below) with the **new tests run, not skipped**; the
+  existing #1 ordering + #3 reminder + #4 freshness tests still pass unchanged.
+- Tests assert at minimum: the cycle sequence **Off→3→5→10→Off exactly**; a bus
+  N minutes out fires at lead ≥ N but **not** at a smaller lead (e.g. a
+  5-min-out bus fires at lead 5 and 10, but not at 3); `remindLeadMin` persists
+  round-trip; default backfill = 3 for an armed legacy item lacking the field.
+- Manual/preview: the bell shows the current lead; tapping cycles
+  arm/disarm + changes the lead; the latch is cleared on Off.
 
 ## Required validation
 node scripts/validate-js.js
-<!-- Plus the new pinned freshness test(s), wired so they run and fail non-zero
-     on regression. If UI changed: manual/preview check in browser. Do NOT
-     weaken the definition of "passing". -->
+<!-- Plus the new pinned tests, wired so they run and fail non-zero on
+     regression. UI changed → manual/preview check of the bell/lead control in
+     the browser. Do NOT weaken the definition of "passing". -->
 
 ## Risk classification
-MEDIUM — touches the core refresh loop of the single production file. Proceeds
-automatically; final merge stays human-controlled.
+LOW–MEDIUM — small, additive change to #3 in the single production file; the
+fire logic is already parameterised, so most of the surface is UI + persistence.
+Proceeds automatically; final merge stays human-controlled.
 
 ## Human approval requirements
 None to proceed. Human owns the final merge (auto-merge off).
 
 ## Open questions
-- None blocking. Choose and document the stale threshold and the null-lastSuccess
-  behaviour rather than escalating.
+- Confirm the {3, 5, 10} set and the Off→3→5→10→Off cycle order if a different
+  set is wanted; otherwise proceed with {3, 5, 10}.

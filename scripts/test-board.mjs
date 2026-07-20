@@ -77,6 +77,27 @@ console.log('PASS: freshness logic regression tests');
 
 assert.equal(typeof logic.evaluateReminder, 'function', 'BoardLogic exports evaluateReminder');
 assert.equal(logic.REARM_TOLERANCE_MS, 90_000, 'reminder re-arm tolerance is pinned');
+assert.deepEqual(Array.from(logic.REMINDER_LEADS), [3, 5, 10], 'reminder leads are pinned in order');
+
+let currentLead = null;
+const leadCycle = [];
+for (let i = 0; i < 4; i++) {
+  const next = logic.nextReminderLead(currentLead);
+  leadCycle.push({ remindMe: next.remindMe, remindLeadMin: next.remindLeadMin });
+  currentLead = next.remindMe ? next.remindLeadMin : null;
+}
+assert.deepEqual(
+  leadCycle,
+  [
+    { remindMe: true, remindLeadMin: 3 },
+    { remindMe: true, remindLeadMin: 5 },
+    { remindMe: true, remindLeadMin: 10 },
+    { remindMe: false, remindLeadMin: null }
+  ],
+  'reminder lead cycle is exactly Off to 3 to 5 to 10 to Off'
+);
+
+console.log('PASS: reminder lead cycle regression tests');
 
 const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
 const LEAD_MS = 3 * 60 * 1000;
@@ -150,6 +171,36 @@ assert.equal(aboveBoundary.shouldNotify, false, 'ETA clearly above the lead thre
 const arrivingNow = reminder({ nearestEta: NOW - 1_000 });
 assert.equal(arrivingNow.shouldNotify, true, 'arriving-now ETA still fires without a lower cutoff');
 
+function reminderAtLead(minutesOut, leadMin) {
+  return logic.evaluateReminder({
+    remindMe: true,
+    nearestEta: NOW + minutesOut * 60_000,
+    leadMs: leadMin * 60_000,
+    notifiedEta: null
+  }, NOW);
+}
+
+for (const leadMin of [5, 10]) {
+  assert.equal(
+    reminderAtLead(5, leadMin).shouldNotify,
+    true,
+    `a 5-minute ETA fires at a ${leadMin}-minute lead`
+  );
+}
+assert.equal(reminderAtLead(5, 3).shouldNotify, false, 'a 5-minute ETA stays quiet at a 3-minute lead');
+for (const leadMin of [3, 5, 10]) {
+  assert.equal(
+    reminderAtLead(3, leadMin).shouldNotify,
+    true,
+    `a 3-minute ETA fires at a ${leadMin}-minute lead`
+  );
+}
+assert.equal(reminderAtLead(8, 10).shouldNotify, true, 'an 8-minute ETA fires at a 10-minute lead');
+assert.equal(reminderAtLead(8, 5).shouldNotify, false, 'an 8-minute ETA stays quiet at a 5-minute lead');
+assert.equal(reminderAtLead(8, 3).shouldNotify, false, 'an 8-minute ETA stays quiet at a 3-minute lead');
+
+console.log('PASS: lead-driven reminder threshold regression tests');
+
 const persistenceStart = html.indexOf('function loadBoard()');
 const persistenceEnd = html.indexOf('function nextBoardOrder()', persistenceStart);
 assert.notEqual(persistenceStart, -1, 'production loadBoard function is present');
@@ -159,15 +210,20 @@ const storage = {
   value: JSON.stringify([
     {
       route: 'armed', company: 'KMB', stopId: 'A', dir: 'outbound', boardOrder: 0,
+      remindMe: true, remindLeadMin: 5, nearestEta: NOW, etaRows: [], remindNotifiedEta: NOW
+    },
+    {
+      route: 'legacy-armed', company: 'KMB', stopId: 'LA', dir: 'outbound', boardOrder: 1,
       remindMe: true, nearestEta: NOW, etaRows: [], remindNotifiedEta: NOW
     },
-    { route: 'legacy', company: 'KMB', stopId: 'L', dir: 'outbound', boardOrder: 1 }
+    { route: 'legacy', company: 'KMB', stopId: 'L', dir: 'outbound', boardOrder: 2 }
   ]),
   getItem() { return this.value; },
   setItem(key, value) { this.value = value; }
 };
 const persistenceContext = vm.createContext({ __storage: storage });
 const persistenceSource = html.slice(start, end + endMarker.length) +
+  '\nconst REMIND_LEAD_MIN = 3;\n' +
   '\nlet board = [];\n' +
   'const localStorage = globalThis.__storage;\n' +
   html.slice(persistenceStart, persistenceEnd) +
@@ -177,9 +233,13 @@ new vm.Script(persistenceSource, { filename: 'index.html#BoardPersistence' }).ru
 persistenceContext.__persistence.loadBoard();
 const loadedBoard = persistenceContext.__persistence.getBoard();
 const loadedArmed = loadedBoard.find(item => item.route === 'armed');
+const loadedLegacyArmed = loadedBoard.find(item => item.route === 'legacy-armed');
 const loadedLegacy = loadedBoard.find(item => item.route === 'legacy');
 assert.equal(loadedArmed.remindMe, true, 'armed reminder state loads from localStorage');
+assert.equal(loadedArmed.remindLeadMin, 5, 'armed reminder lead loads from localStorage');
+assert.equal(loadedLegacyArmed.remindLeadMin, 3, 'armed legacy items backfill the default reminder lead');
 assert.equal(loadedLegacy.remindMe, false, 'legacy board items backfill reminder state as off');
+assert.equal(loadedLegacy.remindLeadMin, 3, 'legacy board items backfill the default reminder lead');
 assert.equal('remindNotifiedEta' in loadedArmed, false, 'runtime latch is not loaded into board state');
 
 loadedArmed.remindNotifiedEta = NOW;
@@ -187,6 +247,7 @@ persistenceContext.__persistence.saveBoard();
 const persisted = JSON.parse(storage.value);
 const persistedArmed = persisted.find(item => item.route === 'armed');
 assert.equal(persistedArmed.remindMe, true, 'armed reminder state round-trips to localStorage');
+assert.equal(persistedArmed.remindLeadMin, 5, 'armed reminder lead round-trips to localStorage');
 assert.equal('remindNotifiedEta' in persistedArmed, false, 'runtime latch is never persisted');
 assert.equal('nearestEta' in persistedArmed, false, 'runtime ETA remains excluded from persistence');
 
