@@ -5,88 +5,84 @@ this file; Codex executes against it. SPEC.md would be the technical source of
 truth but none exists yet — CLAUDE.md governance applies.
 
 ## Objective
-Harden the arrival-reminder latch so a **transient loss of ETA does not cause a
-duplicate reminder**. Today, when a card's nearest ETA is briefly unavailable
-(`nearestEta === null` for a cycle — a data gap, not the bus departing),
-`evaluateReminder` clears the notified-bus latch; when the SAME bus's ETA returns
-within the lead window, it fires a **second** notification for a bus the user was
-already reminded about. Preserve the latch across transient null gaps.
+Make the stale-data age text count **down per second** during an outage instead
+of ticking in 15-second steps. Today the "⚠ 資料可能過時 · … · 更新於 X 秒前 ·
+Updated Xs ago" line is only re-rendered on the 15s refresh cycle, so the age
+jumps 0 → 15 → 30 … s. Drive a lightweight 1-second tick that re-renders the
+freshness line **only while stale**, without changing the 15s fetch cadence.
 
 ## Background
-North Star: **correctness of ETA/route data > simplicity > features.** A kiosk
-that double-buzzes for one bus because of a one-cycle network hiccup is a
-correctness defect (recorded as the #3 MINOR follow-up). The reminder decision is
-already a pure function (`BoardLogic.evaluateReminder(state, now)`), so this is a
-small, well-contained pure-logic change with pinned tests. The notified latch
-(`notifiedEta`) is an **absolute epoch-ms timestamp**, so holding it through a
-null gap is safe: any genuinely new/distinct bus has a later timestamp beyond
-`REARM_TOLERANCE_MS` and still re-arms via the existing `newerBus` path.
+North Star: correctness > simplicity > features. This is the #4 MINOR follow-up
+— a small honesty/polish fix on the stale indicator shipped in #4. The fetch
+loop must stay at 15s (no extra network); only the *displayed age* updates each
+second while the board is stale, and the ticking stops the moment data recovers
+or the board empties (no idle timers).
 
 ## Scope
-- `index.html` inline `<script>`, `BoardLogic` seam: the `nearestEta === null`
-  branch of `evaluateReminder` (~L1516-1521). Change ONLY that null-handling so
-  the latch is preserved instead of reset.
-- `scripts/test-board.mjs`: add pinned regression tests for the transient-null
-  hold + no-duplicate-fire behaviour.
+- `index.html` inline `<script>`: a module-level 1s "stale tick" timer and the
+  logic in/around `renderFreshnessStatus` (~L2357) + `refreshETAs`
+  (~L2516-2545) that starts the tick when stale and clears it when
+  fresh/empty. `formatFreshnessAge` (~L2348) copy stays as-is.
+- `scripts/test-board.mjs`: pin `formatFreshnessAge` boundaries via vm
+  extraction (locks the per-second seconds display + the minute rollover copy).
 
 ## Out of scope
-- The rest of `evaluateReminder` (lead threshold, `sameBus`/`newerBus` re-arm
-  math, `REARM_TOLERANCE_MS`), the #3 fire channels (toast/vibrate/Notification),
-  `nextReminderLead`, `compareBoardItems`, `evaluateFreshness`.
-- `refreshETAs`/`fetchETA`, the 15s cadence, `apiFetch`, providers, per-item ETA
-  render semantics (undefined/[]/null), persistence, `SHARE_KEYS`.
+- The 15s fetch cadence, `refreshETAs` fetch logic, `fetchETA`, `apiFetch`,
+  providers, `evaluateFreshness`/`STALE_AFTER_MS`, reminders, ordering,
+  persistence, `SHARE_KEYS`. The bilingual copy strings in `formatFreshnessAge`
+  and the stale banner (don't reword them).
 - New frameworks/bundlers/build/backend/keys/SW push. Unrelated refactors.
+- Visibility/battery pausing (that is a separate queued item, D — do NOT
+  implement it here).
 
 ## Functional requirements
-1. **Hold the latch through a transient null.** When `remindMe === true` and
-   `nearestEta === null`, `evaluateReminder` must return
-   `shouldNotify: false`, `minutes: null`, and **preserve** the incoming
-   `notifiedEta` (i.e. `notifiedEta: finiteNumber(state.notifiedEta)`), NOT
-   `null`. This keeps the notified-bus latch alive across brief data gaps.
-2. **No duplicate fire on recovery.** After a null gap, when the SAME bus's ETA
-   returns within the lead window, the held latch makes it `sameBus` →
-   `shouldNotify: false`. The user is not re-notified for a bus they were already
-   reminded about.
-3. **Re-arm still works for a genuinely new bus.** A distinct later bus
-   (`nearestEta > notifiedEta + REARM_TOLERANCE_MS`) after a null gap still
-   re-arms and fires at its own threshold, exactly as today. Unarmed
-   (`remindMe !== true`) still returns a cleared latch (`notifiedEta: null`).
-4. **No regression** to any existing #3 reminder behaviour, #5 lead-time,
-   ordering, freshness, cadence, or persistence.
+1. **Per-second age while stale.** While the board is stale (per
+   `evaluateFreshness`) and has items, the age line re-renders every ~1s so
+   "更新於 X 秒前 · Updated Xs ago" counts up per second (recomputing age from
+   `lastSuccessMs` vs the current time).
+2. **Only while stale; self-stopping.** The 1s timer must NOT run when the data
+   is fresh, when there are no board items, or before the first stale state. It
+   must be cleared the moment a refresh succeeds (age resets, banner clears) or
+   the board empties — no idle 1s timer in the healthy path.
+3. **No change to fetch cadence.** The 15s network refresh is untouched; this is
+   display-only. No extra API calls.
+4. **Guarded + idempotent.** Guard all DOM/`document` access (the pure logic
+   lives elsewhere). Starting the tick when already running must not stack
+   multiple intervals (clear-before-set). Healthy-path "更新 HH:MM:SS" render is
+   unchanged.
+5. **No regression** to #4 freshness semantics, reminders, ordering, cadence, or
+   persistence.
 
 ## Non-functional requirements
-- Correctness: the new behaviour is pinned by regression tests against the real
-  vm-extracted `BoardLogic`. Pure function unchanged in shape (takes `now`; no
-  `Date.now()`/DOM). No build step; O(1) decision. i18n/UI unaffected (no UI
-  change expected).
+- Correctness: `formatFreshnessAge` boundaries pinned by a regression test
+  (vm-extracted, DOM-free). The timer itself is a DOM/interval concern —
+  smoke-verify in preview. i18n copy unchanged. No build step. O(1) per tick.
+- No layout break on the 12" board / mobile.
 
 ## Acceptance criteria
-- Validation gate green (below) with the new tests **run, not skipped**; every
-  existing ordering + reminder + lead-cycle + freshness test still passes
+- Validation gate green (below) with the new `formatFreshnessAge` test **run,
+  not skipped**; all existing ordering/reminder/lead/freshness tests pass
   unchanged.
-- Tests assert at minimum: (a) armed + `nearestEta === null` with a non-null
-  incoming `notifiedEta` returns `shouldNotify:false, notifiedEta:<preserved>,
-  minutes:null`; (b) a full sequence — fire at lead → one null-gap cycle →
-  same bus returns within lead — fires exactly **once** (second evaluation
-  `shouldNotify:false`); (c) a distinct later bus after a null gap still re-arms
-  and fires; (d) unarmed still clears the latch.
+- Test asserts at least: 0s and 59s → "X 秒前 · Xs ago"; 60s and 119s →
+  "1 分鐘前 · 1m ago"; 120s → "2 分鐘前 · 2m ago"; negative/again-zero clamps to
+  0s.
+- Preview: with a simulated stale state, the seconds visibly increment ~1/s;
+  on a successful refresh the banner returns to "更新 HH:MM:SS" and the 1s timer
+  stops (no console errors, no stacked timers).
 
 ## Required validation
 node scripts/validate-js.js
-<!-- Plus the new pinned tests, wired to run and fail non-zero on regression.
-     No UI change expected; if any UI is touched, add a preview check. Do NOT
-     weaken the definition of "passing". -->
+<!-- Plus the new pinned test; browser/preview check of the per-second tick and
+     its stop-on-recovery. Do NOT weaken the definition of "passing". -->
 
 ## Risk classification
-LOW–MEDIUM — a one-branch change to the reminder fire logic in the single
-production file. Small surface, but it touches correctness-critical code, so the
-no-duplicate-fire path must be pinned by tests. Proceeds automatically; final
-merge stays human-controlled.
+LOW — display-only polish in the single production file; no network/logic
+change. Proceeds automatically; human owns the final merge.
 
 ## Human approval requirements
 None to proceed. Human owns the final merge (auto-merge off).
 
 ## Open questions
-- None blocking. The latch is an absolute timestamp, so an indefinite hold
-  through sustained null is safe (a real new bus is always a later timestamp);
-  no time-boxing of the hold is required. Note this in the report if you deviate.
+- None blocking. Tick interval ~1000ms; recompute age from `lastSuccessMs` each
+  tick. If you find a cleaner seam (e.g. the tick calling the existing
+  `renderFreshnessStatus(Date.now(), board.length > 0)`), use it and note it.
