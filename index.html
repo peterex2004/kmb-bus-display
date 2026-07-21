@@ -927,6 +927,22 @@
     font-weight: 400;
   }
 
+  .eta-pill.eta-stale {
+    background: rgba(255,255,255,0.05);
+    border-color: var(--border);
+    color: var(--muted);
+    opacity: 0.72;
+  }
+
+  .eta-lastknown {
+    align-self: center;
+    color: var(--muted);
+    font-size: 0.68rem;
+    font-weight: 400;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
   .board-star {
     position: absolute;
     top: 9px;
@@ -1571,11 +1587,29 @@ const BoardLogic = (() => {
     return { stale: ageMs >= thresholdMs, ageMs };
   }
 
+  function resolveEtaDisplay(previous, outcome) {
+    const next = outcome || {};
+    if (next.ok === true) {
+      const rows = Array.isArray(next.rows) ? next.rows : [];
+      if (rows.length > 0) {
+        return { etaRows: rows, nearestEta: rows[0].etaMs, etaStale: false };
+      }
+      return { etaRows: [], nearestEta: null, etaStale: false };
+    }
+
+    const priorRows = previous && previous.etaRows;
+    if (Array.isArray(priorRows) && priorRows.length > 0) {
+      return { etaRows: priorRows, nearestEta: null, etaStale: true };
+    }
+    return { etaRows: null, nearestEta: null, etaStale: false };
+  }
+
   return {
     compareBoardItems,
     nextReminderLead,
     evaluateReminder,
     evaluateFreshness,
+    resolveEtaDisplay,
     shouldRunBackground,
     REMINDER_LEADS,
     REARM_TOLERANCE_MS,
@@ -2338,6 +2372,14 @@ function renderBoardEta(item) {
   }
 
   const now = Date.now();
+  if (item.etaStale) {
+    const staleRows = item.etaRows.map(row => {
+      const mins = Math.round((row.etaMs - now) / 60000);
+      return `<span class="eta-pill eta-stale">${mins <= 0 ? '—' : `${mins} 分鐘`}</span>`;
+    }).join('');
+    return `${staleRows}<span class="eta-lastknown">最後已知 · Last known</span>`;
+  }
+
   return item.etaRows.map(row => {
     const mins = Math.round((row.etaMs - now) / 60000);
     if (mins <= 0) return '<span class="eta-pill now">即將抵達</span>';
@@ -2573,6 +2615,7 @@ async function refreshETAs() {
 }
 
 async function fetchETA(item) {
+  let outcome;
   try {
     const url = (item.company || 'KMB') === 'CTB'
       ? `${CTB_API}/eta/ctb/${item.stopId}/${item.route}`
@@ -2582,17 +2625,20 @@ async function fetchETA(item) {
     const rows = (data.data || []).filter(r => r.dir === dirCode && r.eta);
     const now = Date.now();
 
-    item.etaRows = rows.map(r => ({ etaMs: new Date(r.eta).getTime() }))
+    const parsedRows = rows.map(r => ({ etaMs: new Date(r.eta).getTime() }))
       .filter(r => Number.isFinite(r.etaMs) && r.etaMs >= now)
       .sort((a, b) => a.etaMs - b.etaMs)
       .slice(0, 3);
-    item.nearestEta = item.etaRows.length > 0 ? item.etaRows[0].etaMs : null;
-    return true;
+    outcome = { ok: true, rows: parsedRows };
   } catch (e) {
-    item.etaRows = null;
-    item.nearestEta = null;
-    return false;
+    outcome = { ok: false, rows: null };
   }
+
+  const next = BoardLogic.resolveEtaDisplay(item, outcome);
+  item.etaRows = next.etaRows;
+  item.nearestEta = next.nearestEta;
+  item.etaStale = next.etaStale;
+  return outcome.ok;
 }
 
 function startRefresh() {
