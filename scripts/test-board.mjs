@@ -44,6 +44,31 @@ assert.equal(
 
 console.log('PASS: board ordering regression tests');
 
+assert.equal(typeof logic.resolveEtaDisplay, 'function', 'BoardLogic exports resolveEtaDisplay');
+const etaRows = [{ etaMs: 1 }, { etaMs: 2 }];
+
+const freshEta = logic.resolveEtaDisplay({}, { ok: true, rows: etaRows });
+assert.equal(freshEta.etaRows, etaRows, 'successful ETA rows are used for fresh display');
+assert.equal(freshEta.nearestEta, 1, 'successful ETA rows set the nearest ETA');
+assert.equal(freshEta.etaStale, false, 'successful ETA rows are not stale');
+
+const emptyEta = logic.resolveEtaDisplay({}, { ok: true, rows: [] });
+assert.deepEqual(Array.from(emptyEta.etaRows), [], 'successful empty ETA rows stay empty');
+assert.equal(emptyEta.nearestEta, null, 'successful empty ETA rows have no nearest ETA');
+assert.equal(emptyEta.etaStale, false, 'successful empty ETA rows are not stale');
+
+const retainedEta = logic.resolveEtaDisplay({ etaRows }, { ok: false, rows: null });
+assert.equal(retainedEta.etaRows, etaRows, 'failed ETA fetch retains prior non-empty rows');
+assert.equal(retainedEta.nearestEta, null, 'stale ETA rows never set a nearest ETA');
+assert.equal(retainedEta.etaStale, true, 'retained ETA rows are marked stale');
+
+const unavailableEta = logic.resolveEtaDisplay({ etaRows: null }, { ok: false, rows: null });
+assert.equal(unavailableEta.etaRows, null, 'failed ETA fetch without prior rows stays unavailable');
+assert.equal(unavailableEta.nearestEta, null, 'failed ETA fetch without prior rows has no nearest ETA');
+assert.equal(unavailableEta.etaStale, false, 'failed ETA fetch without prior rows is not stale');
+
+console.log('PASS: ETA display resolver truth table');
+
 assert.equal(typeof logic.shouldRunBackground, 'function', 'BoardLogic exports shouldRunBackground');
 assert.equal(logic.shouldRunBackground(false, true), true, 'visible active board runs background work');
 assert.equal(logic.shouldRunBackground(false, false), false, 'visible inactive board does not run background work');
