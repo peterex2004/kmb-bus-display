@@ -39,10 +39,23 @@ standing list. Item numbers are stable labels, not priority.
   network); on show, resumes with one immediate refresh + the 15s cadence, but
   only while the board screen is active. Pure `BoardLogic.shouldRunBackground`
   predicate + pinned truth table. Visibility only (no Battery/Page-Lifecycle).
+- **#9 — Offline last-known ETA cache** (PR #9, was Candidate F) — on a failed
+  ETA fetch a card keeps its last-known ETAs *dimmed* with a "最後已知 · Last
+  known" marker instead of collapsing to "—". Correctness guardrail: a stale
+  card's `nearestEta` is forced `null`, so stale data never drives #1 ordering
+  (it sinks) or #3 reminders (they don't fire). Pure `BoardLogic.resolveEtaDisplay`
+  + pinned truth table. In-session only; reload-persistence deferred (F2).
+- **#10 — Manual sort mode toggle** (PR #10, was Candidate E, design E1) — a
+  per-board Auto/Manual sort toggle. **Auto is the default** and is byte-for-byte
+  today's soonest-first order (#1 intact); Manual sorts purely by a
+  drag-controlled `boardOrder` in edit mode, ignoring ETA. Mode + order persist
+  under new top-level key `kmb_sort_mode` (outside `SHARE_KEYS`). Pure
+  `BoardLogic.compareBoardManual` + `reorderBoardOrder`, pinned by tests; reorder
+  mutates only `boardOrder`, never ETA data.
 
 ## In flight
 
-- _(none — PRs #6/#7/#8 merged)_
+- _(none — PRs #9/#10 merged)_
 
 ---
 
@@ -61,17 +74,15 @@ Reopening requires a human architecture decision (see
 that commits a slimmed `fares.json`, or (C) approve a third-party dataset
 (`hkbus/hk-bus-crawling`). Until then: **descoped**. Risk if reopened: MEDIUM.
 
-_(Candidates B, C, D shipped as #7, #6, #8 respectively — see "Shipped" above.)_
+_(Candidates B, C, D shipped as #7, #6, #8; E, F shipped as #10, #9 — see
+"Shipped" above. Only Candidate A remains, blocked.)_
 
-### E. Manual card reorder
-Drag-to-reorder within the existing edit mode (order is currently ETA-driven
-only). Persist an explicit ordering. Interaction with #1 auto-sort needs a
-decision (manual overrides auto?, or a pinned-manual mode). Risk: MEDIUM.
-
-### F. Offline last-known cache
-When the network is fully down, show the last-good ETAs greyed out (complements
-#4's stale indicator) instead of only "—". localStorage-backed; no backend.
-Risk: MEDIUM.
+### F2. Reload-persistence of last-known ETAs (follow-on to #9)
+#9 retains last-known ETAs *in session only*. F2 would persist them across a
+reload via a localStorage schema change so a cold start during an outage still
+shows dimmed last-known values. Deferred from #9 to keep that change small and
+avoid touching `saveBoard`/`loadBoard`/`SHARE_KEYS`. Risk: LOW–MEDIUM (schema +
+staleness-on-load handling). Not yet scoped.
 
 ---
 
