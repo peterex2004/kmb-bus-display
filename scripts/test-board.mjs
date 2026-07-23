@@ -18,6 +18,9 @@ const source = html.slice(start, end + endMarker.length) +
 new vm.Script(source, { filename: 'index.html#BoardLogic' }).runInContext(context);
 const logic = context.__boardLogic;
 
+assert.equal(typeof logic.compareBoardManual, 'function', 'BoardLogic exports compareBoardManual');
+assert.equal(typeof logic.reorderBoardOrder, 'function', 'BoardLogic exports reorderBoardOrder');
+
 const sampleBoard = [
   { route: 'late', company: 'KMB', stopId: 'L', dir: 'outbound', nearestEta: 300000, boardOrder: 0 },
   { route: 'tie-second', company: 'KMB', stopId: 'T2', dir: 'outbound', nearestEta: 120000, boardOrder: 2 },
@@ -42,7 +45,62 @@ assert.equal(
   'starred cards are not pinned ahead of a sooner ETA'
 );
 
+const manualOrder = [
+  { route: 'later-eta', company: 'KMB', stopId: 'M1', dir: 'outbound', nearestEta: 300000, boardOrder: 5 },
+  { route: 'earlier-order', company: 'KMB', stopId: 'M2', dir: 'outbound', nearestEta: 600000, boardOrder: 1 }
+].sort(logic.compareBoardManual);
+assert.deepEqual(
+  manualOrder.map(item => item.route),
+  ['earlier-order', 'later-eta'],
+  'manual ordering ignores ETA and puts the smaller boardOrder first'
+);
+
+const manualPresent = { route: 'present', company: 'KMB', stopId: 'MP', dir: 'outbound', nearestEta: 900000, boardOrder: 4 };
+const manualMissing = { route: 'missing', company: 'KMB', stopId: 'MM', dir: 'outbound', nearestEta: 1, boardOrder: Number.NaN };
+assert.equal(logic.compareBoardManual(manualMissing, manualPresent) > 0, true, 'missing boardOrder sinks behind a present order');
+assert.equal(logic.compareBoardManual(manualPresent, manualMissing) < 0, true, 'present boardOrder sorts before a missing order');
+
+const sameOrder = [
+  { route: 'B', company: 'KMB', stopId: 'S', dir: 'outbound', nearestEta: 999, boardOrder: 2 },
+  { route: 'A', company: 'KMB', stopId: 'S', dir: 'outbound', nearestEta: 1, boardOrder: 2 }
+].sort(logic.compareBoardManual);
+assert.deepEqual(
+  sameOrder.map(item => item.route),
+  ['A', 'B'],
+  'same boardOrder falls through to the deterministic board key'
+);
+
+const reorderItems = [
+  { id: 'A', boardOrder: 0, nearestEta: 10, etaRows: [{ etaMs: 10 }] },
+  { id: 'B', boardOrder: 1, nearestEta: 20, etaRows: [{ etaMs: 20 }] },
+  { id: 'C', boardOrder: 2, nearestEta: 30, etaRows: [{ etaMs: 30 }] },
+  { id: 'D', boardOrder: 3, nearestEta: 40, etaRows: [{ etaMs: 40 }] }
+];
+const reorderSnapshot = structuredClone(reorderItems);
+const reordered = logic.reorderBoardOrder(reorderItems, 1, 3);
+assert.deepEqual(reordered.map(item => item.id), ['A', 'C', 'D', 'B'], 'reorder moves the requested item to its target index');
+assert.deepEqual(reordered.map(item => item.boardOrder), [0, 1, 2, 3], 'reorder compacts boardOrder to the resulting positions');
+assert.deepEqual(reorderItems, reorderSnapshot, 'reorder does not mutate the input array or its items');
+assert.equal(reordered.every(item => !reorderItems.includes(item)), true, 'reorder returns shallow-cloned items');
+
+assert.doesNotThrow(() => logic.reorderBoardOrder(reorderItems, -1, 2), 'out-of-range reorder is safe');
+const outOfRange = logic.reorderBoardOrder(
+  [{ id: 'A', boardOrder: 8 }, { id: 'B', boardOrder: 3 }],
+  -1,
+  2
+);
+assert.deepEqual(outOfRange.map(item => item.id), ['A', 'B'], 'out-of-range reorder keeps the sequence');
+assert.deepEqual(outOfRange.map(item => item.boardOrder), [0, 1], 'out-of-range reorder still compacts order');
+
+const equalIndex = logic.reorderBoardOrder(reorderItems, 2, 2);
+assert.deepEqual(equalIndex.map(item => item.id), ['A', 'B', 'C', 'D'], 'equal-index reorder keeps the sequence');
+assert.deepEqual(equalIndex.map(item => item.boardOrder), [0, 1, 2, 3], 'equal-index reorder compacts order');
+const invalidInputResult = logic.reorderBoardOrder(null, 0, 1);
+assert.equal(Array.isArray(invalidInputResult), true, 'non-array reorder input returns an array');
+assert.equal(invalidInputResult.length, 0, 'non-array reorder input returns an empty array');
+
 console.log('PASS: board ordering regression tests');
+console.log('PASS: manual sort and reorder regression tests');
 
 assert.equal(typeof logic.resolveEtaDisplay, 'function', 'BoardLogic exports resolveEtaDisplay');
 const etaRows = [{ etaMs: 1 }, { etaMs: 2 }];
@@ -316,6 +374,7 @@ const persistenceContext = vm.createContext({ __storage: storage });
 const persistenceSource = html.slice(start, end + endMarker.length) +
   '\nconst REMIND_LEAD_MIN = 3;\n' +
   '\nlet board = [];\n' +
+  'let sortMode = \'auto\';\n' +
   'const localStorage = globalThis.__storage;\n' +
   html.slice(persistenceStart, persistenceEnd) +
   '\nglobalThis.__persistence = { loadBoard, saveBoard, getBoard: () => board };';

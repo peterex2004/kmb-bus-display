@@ -809,6 +809,22 @@
 
   #btn-board-edit:active { background: var(--primary-dim); }
 
+  #btn-board-sortmode {
+    background: none;
+    border: 1px solid var(--primary-border);
+    color: var(--primary);
+    font-family: inherit;
+    font-size: 0.72rem;
+    padding: 5px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    touch-action: manipulation;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  #btn-board-sortmode:active { background: var(--primary-dim); }
+
   #btn-board-add {
     background: var(--primary);
     border: none;
@@ -859,6 +875,31 @@
 
   .board-card:active { background: rgba(255,255,255,0.03); }
   .board-card.starred-card { background: rgba(245,158,11,0.05); border-left-color: #f59e0b; }
+
+  .manual-sort-card { padding-left: 40px; cursor: grab; }
+  .manual-sort-card:active { cursor: grabbing; }
+  .board-card.dragging { opacity: 0.5; }
+  .board-card.drop-target {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px var(--primary-dim), var(--shadow);
+  }
+
+  .board-drag-handle {
+    position: absolute;
+    top: 50%;
+    left: 8px;
+    transform: translateY(-50%);
+    color: var(--muted);
+    font-size: 1.15rem;
+    line-height: 1;
+    letter-spacing: -2px;
+    padding: 8px 4px;
+    cursor: grab;
+    user-select: none;
+    touch-action: none;
+  }
+
+  .board-drag-handle:active { cursor: grabbing; }
 
   .board-card-top {
     display: flex;
@@ -1037,6 +1078,7 @@
 
     /* Board cards: tighter */
     .board-card    { padding: 8px 12px; }
+    .manual-sort-card { padding-left: 34px; }
     .board-route   { font-size: 1.2rem; min-width: 52px; }
     .board-dest    { font-size: 0.8rem; }
     .board-card-stop { font-size: 0.62rem; margin-bottom: 5px; }
@@ -1054,6 +1096,9 @@
     .numpad-digits { gap: 4px; }
     .numpad-letters { gap: 4px; }
     #btn-add-route { padding: 10px; }
+
+    .board-header { flex-wrap: wrap; row-gap: 5px; }
+    .board-header-btns { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; row-gap: 5px; }
 
     /* Headers */
     .stop-header   { padding: 7px 12px; padding-top: calc(7px + env(safe-area-inset-top, 0px)); gap: 6px; }
@@ -1076,6 +1121,11 @@
     .sel-input-area { flex: 0 0 100%; }
     #route-matches { flex: 1 1 0; min-height: 0; }
     .sel-numpad    { flex: 0 0 auto; width: 220px; }
+  }
+
+  @media (max-width: 600px) {
+    .board-header { flex-wrap: wrap; row-gap: 5px; }
+    .board-header-btns { flex: 1 1 100%; flex-wrap: wrap; justify-content: flex-end; row-gap: 5px; }
   }
 
   /* ════════════════════════════════════════
@@ -1269,6 +1319,7 @@
           <line x1="8.6" y1="13.5" x2="15.4" y2="17.5"/><line x1="15.4" y1="6.5" x2="8.6" y2="10.5"/>
         </svg>分享
       </button>
+      <button type="button" id="btn-board-sortmode">自動排序 · Auto</button>
       <button type="button" id="btn-board-edit">編輯</button>
       <button type="button" id="btn-board-add" title="搜尋路線">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
@@ -1415,6 +1466,7 @@ const REMIND_LEAD_MS = REMIND_LEAD_MIN * 60000;
 
 let typed = '';
 let board = [];
+let sortMode = 'auto';
 let stopCache    = null;           // KMB bulk stop cache Map<stopId,{name_tc,name_en}>
 let ctbStopCache = new Map();      // CTB individual stop cache
 // routeRegistry: Map<`${company}:${route}`, [{dir,destTc,destEn,serviceType}]>
@@ -1518,6 +1570,37 @@ const BoardLogic = (() => {
     return keyA.localeCompare(keyB, undefined, { numeric: true });
   }
 
+  function compareBoardManual(a, b) {
+    const orderA = finiteNumber(a.boardOrder);
+    const orderB = finiteNumber(b.boardOrder);
+
+    // Missing order metadata sinks behind a present order, while two missing
+    // orders still use the same deterministic key as the auto comparator.
+    if (orderA === null && orderB !== null) return 1;
+    if (orderA !== null && orderB === null) return -1;
+    if (orderA !== null && orderB !== null && orderA !== orderB) {
+      return orderA - orderB;
+    }
+
+    const keyA = `${a.company || 'KMB'}:${a.route || ''}:${a.stopId || ''}:${a.dir || ''}`;
+    const keyB = `${b.company || 'KMB'}:${b.route || ''}:${b.stopId || ''}:${b.dir || ''}`;
+    return keyA.localeCompare(keyB, undefined, { numeric: true });
+  }
+
+  function reorderBoardOrder(items, fromIndex, toIndex) {
+    if (!Array.isArray(items)) return [];
+
+    const reordered = items.slice();
+    if (Number.isInteger(fromIndex) && Number.isInteger(toIndex) &&
+        fromIndex >= 0 && fromIndex < reordered.length &&
+        toIndex >= 0 && toIndex < reordered.length && fromIndex !== toIndex) {
+      const [moved] = reordered.splice(fromIndex, 1);
+      reordered.splice(toIndex, 0, moved);
+    }
+
+    return reordered.map((item, index) => ({ ...item, boardOrder: index }));
+  }
+
   function nextReminderLead(currentLeadMin) {
     const currentIndex = REMINDER_LEADS.indexOf(Number(currentLeadMin));
     if (currentIndex === REMINDER_LEADS.length - 1) {
@@ -1606,6 +1689,8 @@ const BoardLogic = (() => {
 
   return {
     compareBoardItems,
+    compareBoardManual,
+    reorderBoardOrder,
     nextReminderLead,
     evaluateReminder,
     evaluateFreshness,
@@ -1639,10 +1724,23 @@ function loadBoard() {
         boardOrder: Number.isFinite(boardOrder) ? boardOrder : i
       };
     }) : [];
-    board.sort(BoardLogic.compareBoardItems);
+    board.sort(sortMode === 'manual' ? BoardLogic.compareBoardManual :
+      BoardLogic.compareBoardItems);
     saveBoard();
   }
   catch { board = []; }
+}
+
+function loadSortMode() {
+  sortMode = localStorage.getItem('kmb_sort_mode') === 'manual' ? 'manual' : 'auto';
+}
+
+function setSortMode(mode) {
+  sortMode = mode === 'manual' ? 'manual' : 'auto';
+  localStorage.setItem('kmb_sort_mode', sortMode);
+  board.sort(sortMode === 'manual' ? BoardLogic.compareBoardManual :
+    BoardLogic.compareBoardItems);
+  renderBoard();
 }
 
 function saveBoard() {
@@ -2454,9 +2552,13 @@ function renderFreshnessStatus(nowMs, hasBoardItems) {
 
 function renderBoard() {
   document.getElementById('btn-board-edit').textContent = editMode ? '完成' : '編輯';
+  document.getElementById('btn-board-sortmode').textContent = sortMode === 'manual'
+    ? '手動排序 · Manual'
+    : '自動排序 · Auto';
   const el = document.getElementById('board-rows');
   el.classList.toggle('edit-mode', editMode);
-  board.sort(BoardLogic.compareBoardItems);
+  board.sort(sortMode === 'manual' ? BoardLogic.compareBoardManual :
+    BoardLogic.compareBoardItems);
 
   if (board.length === 0) {
     // A previous board's timestamp is not meaningful once there is nothing
@@ -2467,13 +2569,15 @@ function renderBoard() {
     return;
   }
 
+  const manualEdit = sortMode === 'manual' && editMode;
   el.innerHTML = board.map((item, i) => {
     const leadMin = item.remindLeadMin || REMIND_LEAD_MIN;
     const reminderTitle = item.remindMe
       ? `到站前 ${leadMin} 分鐘提示 · Reminder ${leadMin} min before arrival`
       : '設定到站提示（只限開啟頁面時） · Enable arrival reminder while this page is open';
     return `
-    <div class="board-card${item.starred ? ' starred-card' : ''}" data-idx="${i}">
+    <div class="board-card${item.starred ? ' starred-card' : ''}${manualEdit ? ' manual-sort-card' : ''}" data-idx="${i}"${manualEdit ? ' draggable="true"' : ''}>
+      ${manualEdit ? '<span class="board-drag-handle" role="img" aria-label="拖曳排序 · Drag to reorder">⋮⋮</span>' : ''}
       <div class="board-card-top">
         <span class="board-route">${item.route}</span>
         <span class="board-company board-${(item.company||'KMB').toLowerCase()}">${item.company||'KMB'}</span>
@@ -2496,9 +2600,71 @@ function renderBoard() {
   `;
   }).join('');
 
+  if (manualEdit) {
+    let draggedFromIndex = null;
+    const cards = el.querySelectorAll('.board-card');
+    cards.forEach(card => {
+      card.addEventListener('dragstart', e => {
+        draggedFromIndex = Number(card.dataset.idx);
+        card.classList.add('dragging');
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(draggedFromIndex));
+        }
+      });
+
+      card.addEventListener('dragover', e => {
+        e.preventDefault();
+        card.classList.add('drop-target');
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      });
+
+      card.addEventListener('dragleave', e => {
+        if (!e.relatedTarget || !card.contains(e.relatedTarget)) {
+          card.classList.remove('drop-target');
+        }
+      });
+
+      card.addEventListener('drop', e => {
+        e.preventDefault();
+        const dataIndex = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+        const fromIndex = Number.isInteger(draggedFromIndex)
+          ? draggedFromIndex
+          : (dataIndex === '' ? NaN : Number(dataIndex));
+        const toIndex = Number(card.dataset.idx);
+        cards.forEach(otherCard => {
+          otherCard.classList.remove('dragging', 'drop-target');
+        });
+        draggedFromIndex = null;
+
+        if (!Number.isInteger(fromIndex) || !Number.isInteger(toIndex) ||
+            fromIndex < 0 || fromIndex >= board.length ||
+            toIndex < 0 || toIndex >= board.length) return;
+
+        const reordered = BoardLogic.reorderBoardOrder(board, fromIndex, toIndex);
+        if (fromIndex !== toIndex) {
+          const [movedItem] = board.splice(fromIndex, 1);
+          board.splice(toIndex, 0, movedItem);
+        }
+        board.forEach((item, index) => {
+          item.boardOrder = reordered[index].boardOrder;
+        });
+        saveBoard();
+        renderBoard();
+      });
+
+      card.addEventListener('dragend', () => {
+        cards.forEach(otherCard => {
+          otherCard.classList.remove('dragging', 'drop-target');
+        });
+        draggedFromIndex = null;
+      });
+    });
+  }
+
   el.querySelectorAll('.board-card').forEach(card => {
     card.addEventListener('click', e => {
-      if (e.target.closest('.board-star, .board-reminder, .board-del, .board-share')) return;
+      if (e.target.closest('.board-star, .board-reminder, .board-del, .board-share, .board-drag-handle')) return;
       const i = +card.dataset.idx;
       const item = board[i];
       stopRefresh();
@@ -2597,7 +2763,8 @@ async function refreshETAs() {
 
   // Re-apply the ordering only after the complete board snapshot has been
   // fetched, so cards cannot move one-by-one as individual requests resolve.
-  board.sort(BoardLogic.compareBoardItems);
+  board.sort(sortMode === 'manual' ? BoardLogic.compareBoardManual :
+    BoardLogic.compareBoardItems);
 
   for (const item of board) {
     const decision = BoardLogic.evaluateReminder({
@@ -2667,8 +2834,7 @@ function handleVisibilityChange() {
 
 function toggleEditMode() {
   editMode = !editMode;
-  document.getElementById('board-rows').classList.toggle('edit-mode', editMode);
-  document.getElementById('btn-board-edit').textContent = editMode ? '完成' : '編輯';
+  renderBoard();
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2741,6 +2907,10 @@ document.getElementById('btn-board-add').addEventListener('click', () => {
 });
 
 document.getElementById('btn-board-edit').addEventListener('click', toggleEditMode);
+
+document.getElementById('btn-board-sortmode').addEventListener('click', () => {
+  setSortMode(sortMode === 'manual' ? 'auto' : 'manual');
+});
 
 document.getElementById('btn-board-share').addEventListener('click', () => {
   if (board.length === 0) { toast('未有路線可分享'); return; }
@@ -2825,6 +2995,7 @@ function importFromUrl() {
 // ═══════════════════════════════════════════════════════════
 // INIT
 // ═══════════════════════════════════════════════════════════
+loadSortMode();
 loadBoard();
 const sharedIn = importFromUrl();
 
