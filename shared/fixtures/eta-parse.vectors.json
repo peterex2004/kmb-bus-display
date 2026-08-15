@@ -1,0 +1,85 @@
+{
+  "schemaVersion": 1,
+  "description": "Language-neutral golden vectors for the web fetchETA row-selection seam. Epoch values are literal milliseconds and timestamps carry their own +08:00 offset.",
+  "groups": {
+    "filters": {
+      "cases": [
+        {
+          "name": "keeps only the requested direction and non-null ETA rows",
+          "input": {
+            "dirCode": "O",
+            "now": 1786758600000,
+            "rows": [
+              { "dir": "I", "eta": "2026-08-15T09:50:01+08:00" },
+              { "dir": "O", "eta": null },
+              { "dir": "O", "eta": "2026-08-15T09:51:21+08:00" }
+            ]
+          },
+          "expected": [ { "etaMs": 1786758681000 } ]
+        }
+      ]
+    },
+    "pastAndBoundary": {
+      "cases": [
+        {
+          "name": "drops strictly past rows but keeps ETA exactly equal to now",
+          "input": {
+            "dirCode": "O",
+            "now": 1786758600000,
+            "rows": [
+              { "dir": "O", "eta": "not-a-timestamp" },
+              { "dir": "O", "eta": "2026-08-15T09:49:59+08:00" },
+              { "dir": "O", "eta": "2026-08-15T09:50:00+08:00" }
+            ]
+          },
+          "expected": [ { "etaMs": 1786758600000 } ]
+        }
+      ]
+    },
+    "sortAndCap": {
+      "cases": [
+        {
+          "name": "sorts ascending before taking at most three rows",
+          "input": {
+            "dirCode": "O",
+            "now": 1786758600000,
+            "rows": [
+              { "dir": "O", "eta": "2026-08-15T09:54:00+08:00" },
+              { "dir": "O", "eta": "2026-08-15T09:51:00+08:00" },
+              { "dir": "O", "eta": "2026-08-15T09:53:00+08:00" },
+              { "dir": "O", "eta": "2026-08-15T09:52:00+08:00" },
+              { "dir": "O", "eta": "2026-08-15T09:55:00+08:00" }
+            ]
+          },
+          "expected": [
+            { "etaMs": 1786758660000 },
+            { "etaMs": 1786758720000 },
+            { "etaMs": 1786758780000 }
+          ]
+        }
+      ]
+    },
+    "invalidAndOffset": {
+      "cases": [
+        {
+          "name": "drops an unparseable timestamp",
+          "input": {
+            "dirCode": "O",
+            "now": 1786758600000,
+            "rows": [ { "dir": "O", "eta": "2026-99-99T99:99:99+08:00" } ]
+          },
+          "expected": []
+        },
+        {
+          "name": "converts an offset timestamp to the absolute epoch",
+          "input": {
+            "dirCode": "O",
+            "now": 1786758681000,
+            "rows": [ { "dir": "O", "eta": "2026-08-15T09:51:21+08:00" } ]
+          },
+          "expected": [ { "etaMs": 1786758681000 } ]
+        }
+      ]
+    }
+  }
+}
