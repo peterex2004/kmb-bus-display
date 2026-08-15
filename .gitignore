@@ -2,3 +2,6 @@
 worktrees/
 **/.runtime/
 .claude/agent-workflow.local.sh
+.build/
+DerivedData/
+*.xcuserdatad
