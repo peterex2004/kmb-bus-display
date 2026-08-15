@@ -5,145 +5,125 @@ this file; Codex executes against it. SPEC.md would be the technical source of
 truth but none exists yet — CLAUDE.md governance applies.
 
 ## Objective
-**iOS port, Phase 1 — `BoardCore`.** Create a pure, dependency-free Swift
-package at `ios/BoardCore/` that re-implements the web `BoardLogic` seam, and
-prove it satisfies **all 88 cases** in `shared/fixtures/board-logic.vectors.json`
-— the same file the JavaScript gate asserts against. No UI, no networking, no
-app target.
+**iOS port, Phase 2 — data layer.** Add a `TransitProvider` abstraction with
+KMB and Citybus implementations that decode the **real recorded API responses**
+in `shared/fixtures/api/`, plus a pure `EtaParser` reproducing the web's ETA
+row-selection logic. All tests replay fixtures **offline** — no network in tests.
 
 ## Background
-`CLAUDE.md` §1–§2 now define two delivery targets (amended 2026-08-15). The iOS
-target is native SwiftUI, Apple frameworks only, **no third-party dependencies**.
-`docs/ios-architecture.md` holds the design; this contract executes its Phase 1.
+v1 scope was decided as **board + reminders first** (2026-08-15), so the data
+layer is the next dependency: the board cannot render without providers.
 
-The golden vectors are the *shared specification*. If `BoardCore` and
-`BoardLogic` disagree, the web and iOS apps have silently drifted — which is the
-exact failure this phase exists to make impossible.
+`shared/fixtures/api/` holds unmodified responses recorded live from both public
+endpoints on 2026-08-15 (see its `PROVENANCE.md`). They are ground truth, and
+they already expose four decoding traps that a naive port would hit in
+production. Pinning against them satisfies CLAUDE.md DoD #1 ("regression tests
+pinned to real ground truth") without depending on the network.
 
 ## Scope
-- **NEW** `ios/BoardCore/` — a SwiftPM library package:
-  - `Package.swift` (library + test target, **zero dependencies**)
-  - `Sources/BoardCore/` — the domain functions
-  - `Tests/BoardCoreTests/` — a vector-driven runner
-- **NEW/EDIT** `.gitignore` — ignore Swift build artefacts (`.build/`,
-  `*.xcuserdatad`, `DerivedData/`).
-- Optionally a short `ios/README.md` describing how to run the tests.
+- **NEW** `ios/BoardCore/Sources/BoardCore/EtaParser.swift` — pure ETA row
+  selection (see below). Stays inside `BoardCore` because it is domain logic.
+- **NEW** `ios/BoardCore/Sources/BoardCore/Transit/` (or a second SwiftPM target
+  `TransitData` in the same package — Codex's call, justify it):
+  - `TransitProvider` protocol
+  - `KMBProvider`, `CTBProvider`
+  - DTOs + decoding
+- **NEW** tests replaying `shared/fixtures/api/**`.
+- **NEW** `shared/fixtures/eta-parse.vectors.json` — language-neutral vectors
+  for `EtaParser`, in the **same style** as `board-logic.vectors.json`
+  (`schemaVersion`, `description`, `groups`, per-case `name`), so the web can
+  later assert the identical expectations.
 
 ## Out of scope — HARD constraints
-- **`index.html` MUST NOT change.** Neither may `scripts/validate-js.js` or
-  `scripts/test-board.mjs` behaviour.
-- **`shared/fixtures/board-logic.vectors.json` MUST NOT change.** Not one
-  expected value, not one case. If Swift disagrees with a vector, **the Swift
-  code is wrong** — fix the Swift. Editing a vector to make a test pass is
-  changing the definition of correctness → STOP and ESCALATE (§5).
-- **Do NOT copy or duplicate the fixture** into the package. The test must read
-  the one file at `shared/fixtures/`. A copy guarantees future drift and defeats
-  the entire phase.
-- No Xcode `.xcodeproj`, no app target, no SwiftUI, no networking, no
-  persistence — those are Phases 2–4.
-- No third-party dependency of any kind.
+- **`index.html` MUST NOT change.** No web-side edits at all this phase.
+- **`shared/fixtures/board-logic.vectors.json` MUST NOT change**, and **the
+  recorded files under `shared/fixtures/api/` MUST NOT be edited** — they are
+  recordings. If one seems wrong, ESCALATE; do not hand-edit JSON.
+- **No network access in tests or library code paths under test.** Tests must
+  pass with networking unavailable. The provider's transport is injected.
+- No SwiftUI/UI, no persistence, no notifications — Phases 3–4.
+- No third-party dependencies (CLAUDE.md §2, iOS target).
 
-## API to implement (mirroring `BoardLogic`)
-All pure. **No `Date()` / `Date.now` anywhere inside `BoardCore`** — time is
-injected, exactly as on the web.
+## `EtaParser` — port of the web's `fetchETA` row logic
+Web reference (`index.html`, `fetchETA`), which must be reproduced exactly:
 
-| Web | Swift |
-|---|---|
-| `compareBoardItems` | `BoardComparator.auto(_:_:) -> ComparisonResult` |
-| `compareBoardManual` | `BoardComparator.manual(_:_:) -> ComparisonResult` |
-| `reorderBoardOrder` | `reorder(_:from:to:) -> [BoardItem]` |
-| `evaluateReminder` | `ReminderEngine.evaluate(_:now:)` |
-| `nextReminderLead` | `ReminderEngine.nextLead(_:)` |
-| `evaluateFreshness` | `FreshnessEvaluator.evaluate(_:now:staleAfterMs:)` |
-| `resolveEtaDisplay` | `EtaResolver.resolve(previous:outcome:)` |
-| `shouldRunBackground` | `RefreshPolicy.shouldRun(hidden:boardActive:)` |
-| `formatFreshnessAge` | `FreshnessFormatter.age(_:) -> String` |
+```
+rows   = data.data filtered to (r.dir === dirCode && r.eta truthy)
+parsed = rows.map(eta -> epochMs).filter(finite && >= now).sort(asc).take(3)
+```
 
-Constants must match the fixture's `constants` group exactly:
-`staleAfterMs` 60000, `rearmToleranceMs` 90000, `reminderLeads` [3, 5, 10].
+Swift signature (pure; `now` injected, **no `Date()` inside**):
+`EtaParser.parse(rows:dirCode:now:) -> [EtaRow]`
 
-## Known portability traps — handle explicitly
-These are the places a naive port silently diverges. Each MUST be addressed and
-called out in the report:
+Rules: drop rows whose `dir` differs; drop `eta == nil`; drop unparseable
+timestamps; drop strictly-past rows (**keep `etaMs == now`**, matching the web's
+`>= now`); ascending sort; **cap at 3**.
 
-1. **Natural/numeric string ordering.** The web tiebreak is
-   `keyA.localeCompare(keyB, undefined, { numeric: true })` — numeric-aware, so
-   `"2" < "10"`. Swift's default `<` on `String` is **not**. Use
-   `compare(_:options: .numeric)` (or an equivalent that reproduces the numeric
-   collation) and add a test proving `route "2"` sorts before `route "10"`.
-2. **Sort stability.** JS `Array.sort` is specified stable; Swift's `sort()` is
-   **not guaranteed stable**. The comparators end in a deterministic key, so the
-   ordering should be a *total* order and stability should not matter — verify
-   that, and add a test that sorting is deterministic regardless of input
-   permutation (e.g. sort several shuffles of the same input, assert identical
-   output).
-3. **Integer semantics.** Epoch-ms values (~1.767e12) exceed Int32 — use 64-bit
-   `Int`. Note JS `Math.floor` on negatives differs from Swift integer division
-   truncation; `formatFreshnessAge` clamps at 0 first so the observable result
-   matches, but confirm the negative-input vector passes rather than assuming.
+## Known decoding traps — all present in the recorded data
+Documented in `shared/fixtures/api/PROVENANCE.md`. Each MUST be handled and
+reported on:
+1. **`service_type` changes JSON type across KMB endpoints** — String `"1"` in
+   `/route/...`, Int `1` in `/eta/...`.
+2. **`seq` type differs across operators** — String in KMB `/route-stop`, Int in
+   CTB `/route-stop`.
+3. **CTB `lat`/`long` are Strings**, not numbers.
+4. **`eta` can be `null`** — a real row exists in `kmb-stop-eta.json`.
+5. **ETA timestamps carry a `+08:00` offset** — parse as an internet date-time
+   with offset; do not assume UTC or a fixed local zone.
 
-## Fixture consumption rules
-- Resolve the fixture path relative to the **source file** (e.g. via
-  `#filePath` walked up to repo root), NOT the CWD, so `swift test` works from
-  any directory. Do not embed it as a package resource copy.
-- Honour `absentKeys`: a listed dot-path is *absent* from the input at that
-  path. Both absent and JSON `null` map to Swift `nil` for these fields (the
-  distinction is not semantically meaningful to `BoardLogic`); the runner must
-  still parse `absentKeys` and construct the case accordingly rather than
-  ignoring the field.
-- Honour the property flags: `assertInputUnchanged` (input array/items not
-  mutated), `assertClonedItems` (returned items are distinct values), and
-  `assertRowsIdentity` (the returned rows are the same rows as the named input
-  path — in Swift, value equality is the portable reading).
-- Preserve the bilingual `formatFreshnessAge` strings byte-for-byte, e.g.
-  `更新於 1 分鐘前 · Updated 1m ago`.
+Handle 1–3 with a small forgiving decode helper (e.g. a `LenientString` /
+`LenientInt` wrapper accepting either JSON type), **not** by editing fixtures.
 
 ## Functional requirements
-1. Every one of the 88 vector cases is executed and passes.
-2. The runner is **driven by the fixture** — no expected values hard-coded in
-   Swift. Corrupting a vector must fail the Swift tests.
-3. **No silent coverage loss.** Assert a per-group case count and a total of 88,
-   and fail if a declared group is empty or a group is missing — mirroring the
-   JS runner's guard.
-4. A failing case reports the vector's `name` so failures are traceable to the
-   same wording as the web suite.
-5. The JS gate still passes untouched.
+1. `TransitProvider` exposes, at minimum: route lookup, route-stop list, stop
+   detail, and ETA fetch — enough for the Phase 3 board. Company-agnostic at the
+   call site.
+2. `KMBProvider` and `CTBProvider` decode every recorded fixture without error.
+3. `EtaParser` reproduces the web logic exactly, pinned by
+   `shared/fixtures/eta-parse.vectors.json` **and** by an end-to-end test that
+   feeds a real recorded ETA payload through the provider + parser.
+4. Transport is injected (a protocol or closure returning `Data` for a URL), so
+   tests supply fixture bytes. No `URLSession` call in any test path.
+5. URL construction matches the web exactly:
+   - KMB ETA `…/kmb/eta/{stopId}/{route}/{serviceType}`
+   - CTB ETA `…/citybus-nwfb/eta/ctb/{stopId}/{route}`
+   Pin URL building with tests (no live calls).
+6. The `null`-eta row and the type-mismatch fields are covered by explicit tests.
+7. **No silent coverage loss:** the new vector file gets per-group count guards,
+   like the existing runner.
 
 ## Non-functional requirements
-- Zero dependencies. Swift 6 / iOS 17+ language level is fine; the package
-  itself must build for macOS too so `swift test` runs on the CLI.
-- `BoardCore` is UI-free, IO-free (the *tests* do the file read, not the
-  library), and deterministic.
-- Public API documented briefly; naming idiomatic Swift, but behaviour identical
-  to the web.
+- `BoardCore` stays pure and dependency-free; `Foundation` only.
+- No `Date()` in library code — inject `now`.
+- Deterministic: no reliance on the machine's time zone for parsing.
 
 ## Acceptance criteria
-- `swift test` from `ios/BoardCore` — **all tests pass**, 88 cases asserted,
-  count guards active.
-- `node scripts/validate-js.js` still green (web target unaffected).
+- `cd ios/BoardCore && swift test` — all pass, including the existing **88**
+  board-logic vectors (unchanged) plus the new provider/parser tests.
+- `node scripts/validate-js.js` still green (web untouched).
 - `git diff --name-only origin/main` shows **no** `index.html`, **no**
-  `shared/fixtures/**`, **no** `scripts/**` changes.
-- Corrupting one vector value makes `swift test` **fail** (proof the fixture
-  drives the Swift tests too); restore afterwards.
-- Build artefacts (`.build/`) are gitignored, not committed.
+  `shared/fixtures/board-logic.vectors.json`, and **no modifications** to
+  `shared/fixtures/api/*.json` (additions elsewhere are fine).
+- Tests pass with **no network** — demonstrate by running them offline or by
+  showing no networking API is reachable from the test path.
+- Corrupting one value in `eta-parse.vectors.json` fails `swift test`; restore.
 
 ## Required validation
 cd ios/BoardCore && swift test
 node scripts/validate-js.js
-<!-- Both must pass. Do NOT weaken either. Do NOT edit the fixture. -->
+<!-- Both must pass. Do NOT edit recorded fixtures or the board-logic vectors. -->
 
 ## Risk classification
-MEDIUM — new language and toolchain, but a narrow, pure, fully-specified
-surface with an 88-case executable spec. The real risks are the three
-portability traps above and accidentally "fixing" a vector instead of the code.
+MEDIUM — new decoding surface against messy real-world payloads. The traps are
+already identified and pinned by real recordings, which is the main mitigation.
 Proceeds automatically; human owns the final merge.
 
 ## Human approval requirements
-None to proceed — the iOS target is authorised by CLAUDE.md §2 (amended
-2026-08-15). Human owns the final merge. Adding any third-party dependency
-would require explicit approval and is out of scope here.
+None to proceed (iOS target authorised by CLAUDE.md §2, amended 2026-08-15).
+Human owns the final merge.
 
 ## Open questions
-- None blocking. Two decisions remain open for later phases (reminder strategy
-  when the app is closed; v1 scope) — neither affects `BoardCore`, which is
-  pure domain logic.
+- Whether `Transit*` lives in `BoardCore` or a sibling target is Codex's call —
+  justify it. Constraint: `BoardCore`'s existing purity must not regress.
+- The closed-app reminder strategy is still undecided; it does not affect this
+  phase.
