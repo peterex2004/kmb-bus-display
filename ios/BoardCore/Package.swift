@@ -12,13 +12,21 @@ let package = Package(
         .library(
             name: "BoardCore",
             targets: ["BoardCore"]
+        ),
+        .library(
+            name: "TransitData",
+            targets: ["TransitData"]
         )
     ],
     targets: [
         .target(name: "BoardCore"),
+        .target(
+            name: "TransitData",
+            dependencies: ["BoardCore"]
+        ),
         .testTarget(
             name: "BoardCoreTests",
-            dependencies: ["BoardCore"]
+            dependencies: ["BoardCore", "TransitData"]
         )
     ]
 )
