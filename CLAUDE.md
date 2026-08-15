@@ -13,27 +13,60 @@ before making changes.
 ## 1. North Star (what this project is)
 
 九巴/城巴班次顯示 (KMB/CTB Bus Display) — a personal real-time bus arrival
-board for Hong Kong (KMB + CTB), built for a 12" standing screen and mobile
-(installable PWA). Single user (the owner), no accounts, no backend. Priority
-order when goals conflict: **correctness of ETA/route data > simplicity (no
-build step, no framework) > breadth of features**. Live app:
-https://peterex2004.github.io/kmb-bus-display/. Canonical source lives in the
-sibling folder `~/Claude/kmb-bus-display` (production); this cowork clone is
-where Claude/Codex do isolated work before the human reviews and merges back.
+board for Hong Kong (KMB + CTB), built for a 12" standing screen and mobile.
+Single user (the owner), no accounts, no backend. Priority order when goals
+conflict: **correctness of ETA/route data > simplicity > breadth of features**.
+Live app: https://peterex2004.github.io/kmb-bus-display/. Canonical source lives
+in the sibling folder `~/Claude/kmb-bus-display` (production); this cowork clone
+is where Claude/Codex do isolated work before the human reviews and merges back.
+
+**Two delivery targets** (approved 2026-08-15):
+
+- **Web target** — the installable PWA at the live URL above. *Simplicity here
+  means literally no build step and no framework* (see §2).
+- **iOS target** — a native SwiftUI app for iPhone, sharing the same domain
+  logic. *Simplicity here means no third-party dependencies* — Apple frameworks
+  only. Xcode is its build system by necessity.
+
+Correctness outranks simplicity on **both** targets, and the two must not drift:
+shared behaviour is pinned by `shared/fixtures/board-logic.vectors.json`.
 
 ---
 
 ## 2. Architecture direction
 
-- Single `index.html` file — no build tools, no framework, no backend. Keep it
-  that way; do not introduce bundlers/frameworks without explicit human
-  approval.
+### Rules that apply to BOTH targets
+
 - KMB (`data.etabus.gov.hk`) and CTB (`rt.data.gov.hk/.../citybus-nwfb`) are
   both public, unauthenticated APIs — never add API keys/secrets.
-- Route/stop data and UI state live in-memory + `localStorage`; there is no
-  server-side persistence and none should be added.
+- **No backend, ever.** No server-side persistence, no proxy, no push server.
+  All state is on-device. This is unchanged and is not target-scoped.
 - Preserve the zh-HK bilingual (Chinese-first, English labels for tech terms)
   tone already used in the UI copy.
+- Domain logic that both targets share is specified by
+  `shared/fixtures/board-logic.vectors.json`. Changing an expected value there
+  is a change to the *definition of correctness* → human escalation (§5).
+
+### Web target (`index.html`)
+
+- Single `index.html` file — **no build tools, no framework**. Keep it that way;
+  do not introduce bundlers/frameworks here without explicit human approval.
+- Route/stop data and UI state live in-memory + `localStorage`.
+- `index.html` stays at repo root so GitHub Pages keeps serving it unchanged.
+
+### iOS target (`ios/`)
+
+- Native **SwiftUI**, Apple frameworks only — **no third-party dependencies**,
+  no package managers beyond SwiftPM for first-party/local modules. Adding an
+  external dependency needs explicit human approval, exactly as a bundler does
+  on the web target.
+- `BoardCore` is a **pure, dependency-free Swift module** mirroring the web
+  `BoardLogic` seam. It must pass the shared golden vectors. No UI, no
+  networking, no `Date()` inside it — time is injected, as on the web.
+- Persistence is on-device only (SwiftData or Codable files). Reminders are
+  local notifications; **no APNs/push server** (that would need a backend).
+- Xcode/SwiftPM is the build system for this target only. It does not license a
+  build step on the web target.
 
 ---
 
