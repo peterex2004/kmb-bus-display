@@ -5,105 +5,144 @@ this file; Codex executes against it. SPEC.md would be the technical source of
 truth but none exists yet — CLAUDE.md governance applies.
 
 ## Objective
-Add a per-board **Auto / Manual** sort mode (item E, design **E1**). **Auto is
-the default** and keeps today's soonest-first ordering (#1 correctness intact).
-In **Manual** mode the board sorts purely by a user-controlled `boardOrder`
-(drag-to-reorder in edit mode), ignoring ETA for ordering. The mode + order
-persist across reload.
+**iOS port, Phase 0 — shared golden vectors.** Extract the language-neutral
+behavioural assertions currently hard-coded in `scripts/test-board.mjs` into a
+versioned JSON fixture at `shared/fixtures/board-logic.vectors.json`, and
+refactor `test-board.mjs` to drive those assertions **from the fixture**. The
+same fixture will later be consumed by the Swift `BoardCore` unit tests, making
+web↔iOS behavioural parity machine-checked rather than assumed.
 
 ## Background
-North Star: correctness of ETA/route data > simplicity (no build/framework) >
-features. `compareBoardItems` is ETA-primary; `boardOrder` is only an equal-ETA
-tiebreak — so soonest-first and a fixed manual order are mutually exclusive. A
-**mode toggle** is the only way to give manual control without silently
-defeating #1. Auto stays the default so correctness is the out-of-the-box
-behaviour. This does NOT change the auto comparator's math.
+The planned iOS app (native SwiftUI) will re-implement the `BoardLogic` seam in
+Swift. `BoardLogic` is already pure and DOM-free — it is the domain model. The
+single biggest correctness risk in a port is silent behavioural drift between
+the two implementations. A shared, language-neutral vector file removes that
+risk: both implementations must satisfy byte-identical expectations.
+
+This phase is **test-infrastructure only**. It introduces no build step, no
+framework, and no iOS code, so it needs no governance change and is safe to land
+in the web repo on its own merits (it also makes the existing suite
+data-driven and easier to extend).
 
 ## Scope
-- `index.html` inline `<script>`:
-  - `BoardLogic` seam: a pure `compareBoardManual(a, b)` (boardOrder-primary) and
-    a pure `reorderBoardOrder(items, fromIndex, toIndex)` helper; both exported
-    and pinned by tests. `compareBoardItems` (auto) is UNCHANGED and still used.
-  - A board-wide `sortMode ∈ {'auto','manual'}`, default `'auto'`, persisted
-    under a NEW top-level localStorage key `kmb_sort_mode` (NOT inside the
-    per-item board array, NOT in `SHARE_KEYS`).
-  - Every `board.sort(BoardLogic.compareBoardItems)` call site is mode-gated:
-    `board.sort(sortMode === 'manual' ? BoardLogic.compareBoardManual :
-    BoardLogic.compareBoardItems)`.
-  - A sort-mode toggle button in the board edit bar; drag-to-reorder rows in
-    manual + edit mode.
-  - Minimal CSS for the toggle, drag handle, and dragging state.
-- `scripts/test-board.mjs`: pin `compareBoardManual` + `reorderBoardOrder`.
+- **NEW** `shared/fixtures/board-logic.vectors.json` — the versioned vector file.
+- `scripts/test-board.mjs` — load the fixture and drive the portable assertions
+  from it; keep the JS-only tests inline (see "Stays inline" below).
+- Optionally a small loader helper inside `test-board.mjs` (no new dependency,
+  no new npm package, no build step).
 
-## Out of scope
-- `compareBoardItems` / #1 ordering math (auto path stays byte-for-byte today's
-  behaviour), `evaluateReminder` / #3, `evaluateFreshness`/`STALE_AFTER_MS`/#4,
-  `formatFreshnessAge`, #7 stale tick, #8 visibility (`shouldRunBackground`),
-  F's `resolveEtaDisplay`, the 15s cadence, `refreshETAs` fetch logic,
-  `fetchETA`, `apiFetch`, providers.
-- `SHARE_KEYS` / sharing payload. New frameworks/bundlers/build/backend/keys/SW.
-  Unrelated refactors. Rewording existing copy.
+## Out of scope — HARD constraints
+- **`index.html` MUST NOT change.** Phase 0 touches zero production code. A diff
+  that modifies `index.html` is an automatic fail.
+- No new runtime dependency, package manager, bundler, or build step.
+- No change to `scripts/validate-js.js` behaviour (it must still run
+  `test-board.mjs` and fail the gate on any assertion failure).
+- No change to any assertion's *meaning*, threshold, or expected value. This is
+  a **pure re-expression** of existing expectations, not a re-baselining.
+
+## Vector file format
+Language-neutral JSON — no JS-only constructs (no `undefined`, no `NaN`
+literals, no functions). Use `null` for absent values and an explicit sentinel
+(e.g. `{"missing": true}` or omission of the key) where a case must distinguish
+"absent" from "null"; document the convention in the file itself.
+
+Required top-level shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "description": "...",
+  "constants": { "STALE_AFTER_MS": 60000, "REARM_TOLERANCE_MS": 90000,
+                 "REMINDER_LEADS": [3, 5, 10] },
+  "epoch": { "NOW": 1767268800000, "FRESHNESS_NOW": 1767268800000 },
+  "groups": {
+    "compareBoardItems": { "cases": [ { "name": "...", "input": {...},
+                                       "expected": {...} } ] },
+    "...": {}
+  }
+}
+```
+
+Resolve every chained/derived value to a **literal number** computed from the
+declared epoch, so a consumer needs no JS evaluation to use the file. Each case
+carries a `name` — reuse the existing assertion message verbatim so failures
+stay traceable to today's wording.
+
+## Groups that MUST be covered (all currently asserted behaviour)
+1. `compareBoardItems` — the 6-item ordering sample; starred-not-pinned-ahead.
+2. `compareBoardManual` — ETA-ignoring order; missing `boardOrder` sinks (both
+   argument orders); same-`boardOrder` deterministic-key fallthrough.
+3. `reorderBoardOrder` — move+compact; input-not-mutated; shallow-cloned items;
+   out-of-range; equal-index; non-array input.
+4. `resolveEtaDisplay` — the 4-case truth table (incl. **stale ⇒ nearestEta
+   null**).
+5. `shouldRunBackground` — the 4-case truth table.
+6. `evaluateFreshness` — below/at/above threshold, no-successful-refresh,
+   older-has-larger-age.
+7. `formatFreshnessAge` — 0s, 59s, 60s rollover, 119s floor, 120s, negative
+   clamp (exact bilingual strings preserved byte-for-byte).
+8. `nextReminderLead` — the full Off→3→5→10→Off cycle.
+9. `evaluateReminder` — every currently-asserted scenario: not-yet, first fire,
+   same-bus drift, distinct-later-bus before/at lead, unarmed, missing-ETA latch
+   hold, the transient-null gap chain (fires exactly once), re-arm after gap,
+   at/above lead boundary, arriving-now, and the lead-matrix
+   (`reminderAtLead`) cases.
+10. `constants` — `STALE_AFTER_MS`, `REARM_TOLERANCE_MS`, `REMINDER_LEADS`.
+
+## Stays inline in test-board.mjs (JS-only, NOT vectorised)
+- The `vm` extraction machinery and marker assertions.
+- The `loadBoard`/`saveBoard` **localStorage persistence** tests — these bind to
+  a web-only storage mechanism; iOS will use a different persistence layer.
+  Keep them exactly as they are today.
 
 ## Functional requirements
-1. **Mode state + persistence.** `sortMode` defaults to `'auto'`; persisted under
-   `kmb_sort_mode`; any missing/invalid stored value loads as `'auto'`.
-2. **Auto mode = today's behaviour.** `compareBoardItems` unchanged; the only
-   change in auto is that the sort call is mode-gated (auto branch === current
-   call). Soonest-first, F stale cards sink (nearestEta null), reminders/#4/#7/#8
-   all unchanged.
-3. **Manual comparator (pure).** `compareBoardManual(a, b)` orders by `boardOrder`
-   (finiteNumber; missing sinks deterministically) then the SAME final
-   deterministic key as `compareBoardItems`. Ignores `nearestEta`.
-4. **Reorder helper (pure).** `reorderBoardOrder(items, fromIndex, toIndex)`
-   returns a NEW array reflecting moving one item, with compact integer
-   `boardOrder` 0..n-1 reassigned by resulting position. Out-of-range / no-op
-   inputs are safe (return an equivalent array, no throw).
-5. **Toggle UI.** A button in the board edit bar, bilingual label reflecting
-   state ("自動排序 · Auto" / "手動排序 · Manual"); click flips mode, persists,
-   re-sorts, re-renders.
-6. **Drag-to-reorder (manual + edit mode only).** Rows draggable with a drag
-   handle; on drop compute new order via `reorderBoardOrder`, assign `boardOrder`,
-   `saveBoard()`, `renderBoard()`. Drag is NOT enabled in auto mode (it would be
-   immediately overwritten by the ETA sort) nor outside edit mode.
-7. **New cards append in manual.** New cards keep getting `nextBoardOrder()`
-   (already the case), so in manual mode they land at the bottom.
-8. **No regression** to #1/#3/#4/#5/#6/#7/#8, ETAs still render/refresh normally
-   in manual mode (a stale card stays in its manual slot — expected).
+1. Every assertion that exists today still runs and still passes.
+2. The portable assertions are **driven by the fixture** — editing an expected
+   value in the JSON must change what the test asserts (no duplicated
+   hard-coded expectations left behind shadowing the fixture).
+3. **No silent coverage loss.** The runner must fail if a declared group has
+   zero cases, and must assert a per-group expected case count so that
+   accidentally dropping cases breaks the gate.
+4. The runner prints a clear per-group PASS line and a total case count.
+5. The existing `PASS:` lines consumed by humans/CI stay recognisable (keep the
+   same wording where a group maps 1:1 to a current line).
 
 ## Non-functional requirements
-- Correctness: `compareBoardManual` + `reorderBoardOrder` are DOM-free pure
-  functions pinned by regression tests. Drag wiring + toggle are DOM concerns —
-  smoke-verify in preview. No build step. i18n tone preserved (Chinese-first).
-- No layout break on the 12" board / mobile.
+- Pure Node, no dependencies. Fixture read via `node:fs/promises` + `JSON.parse`.
+- The fixture must be readable by a non-JS consumer (Swift `Codable`) without
+  preprocessing — that is the whole point.
+- Keep the bilingual expected strings exactly as today (UTF-8, no escaping
+  changes that alter the decoded value).
 
 ## Acceptance criteria
-- Validation gate green (below) with new `compareBoardManual` +
-  `reorderBoardOrder` tests **run, not skipped**; all existing tests pass
-  unchanged (including F's resolver truth table and auto `compareBoardItems`).
-- Tests assert: (a) `compareBoardManual` orders by `boardOrder` regardless of
-  `nearestEta` (a later-ETA item with smaller boardOrder sorts first); missing
-  boardOrder handled deterministically. (b) `reorderBoardOrder(items, from, to)`
-  moving an item yields the expected sequence with compact 0..n-1 `boardOrder`;
-  out-of-range/no-op safe.
-- Preview: Auto (default) → soonest-first, no drag handles. Toggle to Manual →
-  order freezes; edit mode → drag a card → stays dropped, persists across a
-  refresh cycle and a reload. Toggle back to Auto → ETA sort resumes. No console
-  errors; reminders/#4/#7/#8 behave.
+- `node scripts/validate-js.js` green, exit 0, **no skips**.
+- `git diff --stat origin/main` shows **`index.html` untouched**; only
+  `docs/task.md`, `shared/fixtures/board-logic.vectors.json`, and
+  `scripts/test-board.mjs` change.
+- Deliberately corrupting one expected value in the fixture makes the gate
+  **fail** (prove the tests really read the file) — demonstrate this in the
+  report, then restore the file.
+- Total asserted case count is reported and is ≥ the number of portable
+  assertions present today.
 
 ## Required validation
 node scripts/validate-js.js
-<!-- Plus the new pinned compareBoardManual + reorderBoardOrder tests; browser
-     preview of toggle + drag + persistence. Do NOT weaken "passing". -->
+<!-- Plus the fixture-drives-the-test proof described above. Do NOT weaken
+     "passing", and do NOT change any expected value. -->
 
 ## Risk classification
-MEDIUM — new drag interaction + mode + persistence in the single file. Pure
-comparator/reorder pinned by tests; auto path unchanged. Proceeds
-automatically; human owns the final merge. ESCALATE if drag cannot be done
-cleanly without a framework or without touching the auto comparator.
+LOW — test-infrastructure only; production code untouched. The one real risk is
+silent coverage loss during extraction, which requirement 3 (per-group expected
+counts) and the corruption proof are designed to catch. Proceeds automatically;
+human owns the final merge.
 
 ## Human approval requirements
-None to proceed. Human owns the final merge (auto-merge off).
+None to proceed. Human owns the final merge (auto-merge off). Note: the broader
+iOS port (Xcode project, Swift target) is **not** authorised by this contract —
+CLAUDE.md §2's no-build-tools rule is still pending a human decision. Phase 0
+deliberately stays inside the existing web repo's rules.
 
 ## Open questions
-- None blocking. Non-negotiable: the AUTO path stays byte-for-byte today's
-  behaviour and manual reorder never mutates ETA data (only `boardOrder`).
+- None blocking. If a case genuinely cannot be expressed language-neutrally,
+  leave it inline, list it explicitly in the report with the reason, and cover
+  everything else.
