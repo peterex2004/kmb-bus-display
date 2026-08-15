@@ -1,0 +1,509 @@
+{
+  "schemaVersion": 1,
+  "description": "Language-neutral golden vectors for the BoardLogic seam. All numbers are literal values; epoch.NOW and epoch.FRESHNESS_NOW are the only time anchors used to derive the cases. A field listed in a case's absentKeys is intentionally omitted from input at that JSON path. Paths use dot-separated object keys and zero-based array indexes, and an absent input field is treated as a missing value by the consumer. Null remains distinct from an absent field. The assertInputUnchanged, assertClonedItems, and assertRowsIdentity flags describe portable observable properties that the JavaScript runner also verifies with its native identity checks.",
+  "constants": {
+    "STALE_AFTER_MS": 60000,
+    "REARM_TOLERANCE_MS": 90000,
+    "REMINDER_LEADS": [3, 5, 10]
+  },
+  "epoch": {
+    "NOW": 1767268800000,
+    "FRESHNESS_NOW": 1767268800000
+  },
+  "groups": {
+    "compareBoardItems": {
+      "cases": [
+        {
+          "name": "ETA ordering is ascending, stable for ties, and sinks unavailable cards",
+          "input": {
+            "items": [
+              { "route": "late", "company": "KMB", "stopId": "L", "dir": "outbound", "nearestEta": 300000, "boardOrder": 0 },
+              { "route": "tie-second", "company": "KMB", "stopId": "T2", "dir": "outbound", "nearestEta": 120000, "boardOrder": 2 },
+              { "route": "no-eta-first", "company": "KMB", "stopId": "N1", "dir": "outbound", "nearestEta": null, "boardOrder": 3 },
+              { "route": "early", "company": "KMB", "stopId": "E", "dir": "outbound", "nearestEta": 60000, "boardOrder": 4 },
+              { "route": "tie-first", "company": "KMB", "stopId": "T1", "dir": "outbound", "nearestEta": 120000, "boardOrder": 1 },
+              { "route": "no-eta-second", "company": "KMB", "stopId": "N2", "dir": "outbound", "boardOrder": 5 }
+            ]
+          },
+          "absentKeys": ["input.items.5.nearestEta"],
+          "expected": {
+            "orderedRoutes": ["early", "tie-first", "tie-second", "late", "no-eta-first", "no-eta-second"]
+          }
+        },
+        {
+          "name": "starred cards are not pinned ahead of a sooner ETA",
+          "input": {
+            "a": { "route": "unstarred-sooner", "company": "KMB", "stopId": "U", "dir": "outbound", "starred": false, "nearestEta": 180000, "boardOrder": 1 },
+            "b": { "route": "starred-later", "company": "KMB", "stopId": "S", "dir": "outbound", "starred": true, "nearestEta": 240000, "boardOrder": 0 }
+          },
+          "expected": { "comparisonSign": -1 }
+        }
+      ]
+    },
+    "compareBoardManual": {
+      "cases": [
+        {
+          "name": "manual ordering ignores ETA and puts the smaller boardOrder first",
+          "input": {
+            "items": [
+              { "route": "later-eta", "company": "KMB", "stopId": "M1", "dir": "outbound", "nearestEta": 300000, "boardOrder": 5 },
+              { "route": "earlier-order", "company": "KMB", "stopId": "M2", "dir": "outbound", "nearestEta": 600000, "boardOrder": 1 }
+            ]
+          },
+          "expected": { "orderedRoutes": ["earlier-order", "later-eta"] }
+        },
+        {
+          "name": "missing boardOrder sinks behind a present order",
+          "input": {
+            "a": { "route": "missing", "company": "KMB", "stopId": "MM", "dir": "outbound", "nearestEta": 1 },
+            "b": { "route": "present", "company": "KMB", "stopId": "MP", "dir": "outbound", "nearestEta": 900000, "boardOrder": 4 }
+          },
+          "absentKeys": ["input.a.boardOrder"],
+          "expected": { "comparisonSign": 1 }
+        },
+        {
+          "name": "present boardOrder sorts before a missing order",
+          "input": {
+            "a": { "route": "present", "company": "KMB", "stopId": "MP", "dir": "outbound", "nearestEta": 900000, "boardOrder": 4 },
+            "b": { "route": "missing", "company": "KMB", "stopId": "MM", "dir": "outbound", "nearestEta": 1 }
+          },
+          "absentKeys": ["input.b.boardOrder"],
+          "expected": { "comparisonSign": -1 }
+        },
+        {
+          "name": "same boardOrder falls through to the deterministic board key",
+          "input": {
+            "items": [
+              { "route": "B", "company": "KMB", "stopId": "S", "dir": "outbound", "nearestEta": 999, "boardOrder": 2 },
+              { "route": "A", "company": "KMB", "stopId": "S", "dir": "outbound", "nearestEta": 1, "boardOrder": 2 }
+            ]
+          },
+          "expected": { "orderedRoutes": ["A", "B"] }
+        }
+      ]
+    },
+    "reorderBoardOrder": {
+      "cases": [
+        {
+          "name": "reorder moves the requested item to its target index",
+          "input": { "items": [{ "id": "A", "boardOrder": 0, "nearestEta": 10, "etaRows": [{ "etaMs": 10 }] }, { "id": "B", "boardOrder": 1, "nearestEta": 20, "etaRows": [{ "etaMs": 20 }] }, { "id": "C", "boardOrder": 2, "nearestEta": 30, "etaRows": [{ "etaMs": 30 }] }, { "id": "D", "boardOrder": 3, "nearestEta": 40, "etaRows": [{ "etaMs": 40 }] }], "fromIndex": 1, "toIndex": 3 },
+          "expected": { "orderedIds": ["A", "C", "D", "B"] }
+        },
+        {
+          "name": "reorder compacts boardOrder to the resulting positions",
+          "input": { "items": [{ "id": "A", "boardOrder": 0, "nearestEta": 10, "etaRows": [{ "etaMs": 10 }] }, { "id": "B", "boardOrder": 1, "nearestEta": 20, "etaRows": [{ "etaMs": 20 }] }, { "id": "C", "boardOrder": 2, "nearestEta": 30, "etaRows": [{ "etaMs": 30 }] }, { "id": "D", "boardOrder": 3, "nearestEta": 40, "etaRows": [{ "etaMs": 40 }] }], "fromIndex": 1, "toIndex": 3 },
+          "expected": { "boardOrders": [0, 1, 2, 3] }
+        },
+        {
+          "name": "reorder does not mutate the input array or its items",
+          "input": { "items": [{ "id": "A", "boardOrder": 0, "nearestEta": 10, "etaRows": [{ "etaMs": 10 }] }, { "id": "B", "boardOrder": 1, "nearestEta": 20, "etaRows": [{ "etaMs": 20 }] }, { "id": "C", "boardOrder": 2, "nearestEta": 30, "etaRows": [{ "etaMs": 30 }] }, { "id": "D", "boardOrder": 3, "nearestEta": 40, "etaRows": [{ "etaMs": 40 }] }], "fromIndex": 1, "toIndex": 3 },
+          "assertInputUnchanged": true,
+          "expected": {}
+        },
+        {
+          "name": "reorder returns shallow-cloned items",
+          "input": { "items": [{ "id": "A", "boardOrder": 0, "nearestEta": 10, "etaRows": [{ "etaMs": 10 }] }, { "id": "B", "boardOrder": 1, "nearestEta": 20, "etaRows": [{ "etaMs": 20 }] }, { "id": "C", "boardOrder": 2, "nearestEta": 30, "etaRows": [{ "etaMs": 30 }] }, { "id": "D", "boardOrder": 3, "nearestEta": 40, "etaRows": [{ "etaMs": 40 }] }], "fromIndex": 1, "toIndex": 3 },
+          "assertClonedItems": true,
+          "expected": {}
+        },
+        {
+          "name": "out-of-range reorder is safe",
+          "input": { "items": [{ "id": "A", "boardOrder": 0 }, { "id": "B", "boardOrder": 1 }], "fromIndex": -1, "toIndex": 2 },
+          "assertNoThrow": true,
+          "expected": {}
+        },
+        {
+          "name": "out-of-range reorder keeps the sequence",
+          "input": { "items": [{ "id": "A", "boardOrder": 8 }, { "id": "B", "boardOrder": 3 }], "fromIndex": -1, "toIndex": 2 },
+          "expected": { "orderedIds": ["A", "B"] }
+        },
+        {
+          "name": "out-of-range reorder still compacts order",
+          "input": { "items": [{ "id": "A", "boardOrder": 8 }, { "id": "B", "boardOrder": 3 }], "fromIndex": -1, "toIndex": 2 },
+          "expected": { "boardOrders": [0, 1] }
+        },
+        {
+          "name": "equal-index reorder keeps the sequence",
+          "input": { "items": [{ "id": "A", "boardOrder": 0 }, { "id": "B", "boardOrder": 1 }, { "id": "C", "boardOrder": 2 }, { "id": "D", "boardOrder": 3 }], "fromIndex": 2, "toIndex": 2 },
+          "expected": { "orderedIds": ["A", "B", "C", "D"] }
+        },
+        {
+          "name": "equal-index reorder compacts order",
+          "input": { "items": [{ "id": "A", "boardOrder": 0 }, { "id": "B", "boardOrder": 1 }, { "id": "C", "boardOrder": 2 }, { "id": "D", "boardOrder": 3 }], "fromIndex": 2, "toIndex": 2 },
+          "expected": { "boardOrders": [0, 1, 2, 3] }
+        },
+        {
+          "name": "non-array reorder input returns an array",
+          "input": { "items": null, "fromIndex": 0, "toIndex": 1 },
+          "expected": { "isArray": true }
+        },
+        {
+          "name": "non-array reorder input returns an empty array",
+          "input": { "items": null, "fromIndex": 0, "toIndex": 1 },
+          "expected": { "length": 0 }
+        }
+      ]
+    },
+    "resolveEtaDisplay": {
+      "cases": [
+        {
+          "name": "successful ETA rows are used for fresh display",
+          "input": { "previous": {}, "outcome": { "ok": true, "rows": [{ "etaMs": 1 }, { "etaMs": 2 }] } },
+          "assertRowsIdentity": "outcome.rows",
+          "expected": { "etaRows": [{ "etaMs": 1 }, { "etaMs": 2 }] }
+        },
+        {
+          "name": "successful ETA rows set the nearest ETA",
+          "input": { "previous": {}, "outcome": { "ok": true, "rows": [{ "etaMs": 1 }, { "etaMs": 2 }] } },
+          "expected": { "nearestEta": 1 }
+        },
+        {
+          "name": "successful ETA rows are not stale",
+          "input": { "previous": {}, "outcome": { "ok": true, "rows": [{ "etaMs": 1 }, { "etaMs": 2 }] } },
+          "expected": { "etaStale": false }
+        },
+        {
+          "name": "successful empty ETA rows stay empty",
+          "input": { "previous": {}, "outcome": { "ok": true, "rows": [] } },
+          "expected": { "etaRows": [] }
+        },
+        {
+          "name": "successful empty ETA rows have no nearest ETA",
+          "input": { "previous": {}, "outcome": { "ok": true, "rows": [] } },
+          "expected": { "nearestEta": null }
+        },
+        {
+          "name": "successful empty ETA rows are not stale",
+          "input": { "previous": {}, "outcome": { "ok": true, "rows": [] } },
+          "expected": { "etaStale": false }
+        },
+        {
+          "name": "failed ETA fetch retains prior non-empty rows",
+          "input": { "previous": { "etaRows": [{ "etaMs": 1 }, { "etaMs": 2 }] }, "outcome": { "ok": false, "rows": null } },
+          "assertRowsIdentity": "previous.etaRows",
+          "expected": { "etaRows": [{ "etaMs": 1 }, { "etaMs": 2 }] }
+        },
+        {
+          "name": "stale ETA rows never set a nearest ETA",
+          "input": { "previous": { "etaRows": [{ "etaMs": 1 }, { "etaMs": 2 }] }, "outcome": { "ok": false, "rows": null } },
+          "expected": { "nearestEta": null }
+        },
+        {
+          "name": "retained ETA rows are marked stale",
+          "input": { "previous": { "etaRows": [{ "etaMs": 1 }, { "etaMs": 2 }] }, "outcome": { "ok": false, "rows": null } },
+          "expected": { "etaStale": true }
+        },
+        {
+          "name": "failed ETA fetch without prior rows stays unavailable",
+          "input": { "previous": { "etaRows": null }, "outcome": { "ok": false, "rows": null } },
+          "expected": { "etaRows": null }
+        },
+        {
+          "name": "failed ETA fetch without prior rows has no nearest ETA",
+          "input": { "previous": { "etaRows": null }, "outcome": { "ok": false, "rows": null } },
+          "expected": { "nearestEta": null }
+        },
+        {
+          "name": "failed ETA fetch without prior rows is not stale",
+          "input": { "previous": { "etaRows": null }, "outcome": { "ok": false, "rows": null } },
+          "expected": { "etaStale": false }
+        }
+      ]
+    },
+    "shouldRunBackground": {
+      "cases": [
+        { "name": "visible active board runs background work", "input": { "hidden": false, "boardActive": true }, "expected": true },
+        { "name": "visible inactive board does not run background work", "input": { "hidden": false, "boardActive": false }, "expected": false },
+        { "name": "hidden active board does not run background work", "input": { "hidden": true, "boardActive": true }, "expected": false },
+        { "name": "hidden inactive board does not run background work", "input": { "hidden": true, "boardActive": false }, "expected": false }
+      ]
+    },
+    "evaluateFreshness": {
+      "cases": [
+        {
+          "name": "freshness stays fresh below the stale threshold",
+          "input": { "lastSuccessMs": 1767268740001, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "stale": false }
+        },
+        {
+          "name": "freshness reports the exact age below the threshold",
+          "input": { "lastSuccessMs": 1767268740001, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "ageMs": 59999 }
+        },
+        {
+          "name": "freshness is stale at the exact threshold boundary",
+          "input": { "lastSuccessMs": 1767268740000, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "stale": true }
+        },
+        {
+          "name": "freshness reports the exact boundary age",
+          "input": { "lastSuccessMs": 1767268740000, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "ageMs": 60000 }
+        },
+        {
+          "name": "freshness remains stale above the threshold",
+          "input": { "lastSuccessMs": 1767268739999, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "stale": true }
+        },
+        {
+          "name": "no successful refresh yet is not treated as stale",
+          "input": { "lastSuccessMs": null, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "stale": false }
+        },
+        {
+          "name": "no successful refresh yet reports no age",
+          "input": { "lastSuccessMs": null, "now": 1767268800000, "staleAfterMs": 60000 },
+          "expected": { "ageMs": null }
+        },
+        {
+          "name": "an older successful refresh has a larger age",
+          "input": {
+            "newer": { "lastSuccessMs": 1767268739999, "now": 1767268800000, "staleAfterMs": 60000 },
+            "older": { "lastSuccessMs": 1767268679999, "now": 1767268800000, "staleAfterMs": 60000 }
+          },
+          "expected": { "olderAgeGreater": true }
+        }
+      ]
+    },
+    "formatFreshnessAge": {
+      "cases": [
+        { "name": "freshness age formats zero seconds", "input": { "ageMs": 0 }, "expected": "更新於 0 秒前 · Updated 0s ago" },
+        { "name": "freshness age formats 59 seconds", "input": { "ageMs": 59000 }, "expected": "更新於 59 秒前 · Updated 59s ago" },
+        { "name": "freshness age rolls over at one minute", "input": { "ageMs": 60000 }, "expected": "更新於 1 分鐘前 · Updated 1m ago" },
+        { "name": "freshness age floors 119 seconds to one minute", "input": { "ageMs": 119000 }, "expected": "更新於 1 分鐘前 · Updated 1m ago" },
+        { "name": "freshness age formats two minutes", "input": { "ageMs": 120000 }, "expected": "更新於 2 分鐘前 · Updated 2m ago" },
+        { "name": "freshness age clamps negative values to zero", "input": { "ageMs": -5000 }, "expected": "更新於 0 秒前 · Updated 0s ago" }
+      ]
+    },
+    "nextReminderLead": {
+      "cases": [
+        {
+          "name": "reminder lead cycle is exactly Off to 3 to 5 to 10 to Off",
+          "input": { "startingLead": null, "steps": 4 },
+          "expected": {
+            "cycle": [
+              { "remindMe": true, "remindLeadMin": 3 },
+              { "remindMe": true, "remindLeadMin": 5 },
+              { "remindMe": true, "remindLeadMin": 10 },
+              { "remindMe": false, "remindLeadMin": null }
+            ]
+          }
+        }
+      ]
+    },
+    "evaluateReminder": {
+      "cases": [
+        {
+          "name": "reminder stays quiet above the lead threshold",
+          "input": { "remindMe": true, "nearestEta": 1767268981000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "armed reminder fires when ETA crosses within the lead time",
+          "input": { "remindMe": true, "nearestEta": 1767268950000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "first notification latches the bus ETA",
+          "input": { "remindMe": true, "nearestEta": 1767268950000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "notifiedEta": 1767268950000 }
+        },
+        {
+          "name": "same bus does not fire again on the next refresh",
+          "input": { "remindMe": true, "nearestEta": 1767268920000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268815000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "same-bus latch survives normal ETA drift",
+          "input": { "remindMe": true, "nearestEta": 1767268920000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268815000 },
+          "expected": { "notifiedEta": 1767268950000 }
+        },
+        {
+          "name": "distinct later bus does not fire before its lead threshold",
+          "input": { "remindMe": true, "nearestEta": 1767269430000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268980000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "distinct later bus clears the previous latch",
+          "input": { "remindMe": true, "nearestEta": 1767269430000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268980000 },
+          "expected": { "notifiedEta": null }
+        },
+        {
+          "name": "distinctly later next bus re-arms and fires",
+          "input": { "remindMe": true, "nearestEta": 1767269430000, "leadMs": 180000, "notifiedEta": null, "now": 1767269250000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "later bus becomes the new latched ETA",
+          "input": { "remindMe": true, "nearestEta": 1767269430000, "leadMs": 180000, "notifiedEta": null, "now": 1767269250000 },
+          "expected": { "notifiedEta": 1767269430000 }
+        },
+        {
+          "name": "unarmed card never fires",
+          "input": { "remindMe": false, "nearestEta": 1767268800000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "unarmed card clears its latch",
+          "input": { "remindMe": false, "nearestEta": 1767268800000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "notifiedEta": null }
+        },
+        {
+          "name": "unarmed card has no ETA minutes",
+          "input": { "remindMe": false, "nearestEta": 1767268800000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "minutes": null }
+        },
+        {
+          "name": "missing ETA never fires",
+          "input": { "remindMe": true, "nearestEta": null, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "missing ETA preserves the unavailable bus latch",
+          "input": { "remindMe": true, "nearestEta": null, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "notifiedEta": 1767268950000 }
+        },
+        {
+          "name": "missing ETA has no ETA minutes",
+          "input": { "remindMe": true, "nearestEta": null, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "minutes": null }
+        },
+        {
+          "name": "transient-gap scenario fires the first reminder",
+          "chain": "transientNullGap",
+          "chainStep": "first",
+          "input": { "remindMe": true, "nearestEta": 1767268950000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "transient null gap does not fire",
+          "chain": "transientNullGap",
+          "chainStep": "gap",
+          "input": { "remindMe": true, "nearestEta": null, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "transient null gap holds the fired latch",
+          "chain": "transientNullGap",
+          "chainStep": "gap",
+          "input": { "remindMe": true, "nearestEta": null, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "notifiedEta": 1767268950000 }
+        },
+        {
+          "name": "same bus recovery does not fire a duplicate reminder",
+          "chain": "transientNullGap",
+          "chainStep": "recovery",
+          "input": { "remindMe": true, "nearestEta": 1767268920000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268815000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "same bus recovery keeps the held latch",
+          "chain": "transientNullGap",
+          "chainStep": "recovery",
+          "input": { "remindMe": true, "nearestEta": 1767268920000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268815000 },
+          "expected": { "notifiedEta": 1767268950000 }
+        },
+        {
+          "name": "same bus fires exactly once across a transient null gap",
+          "chainAssertion": { "chain": "transientNullGap", "shouldNotifyCount": 1 },
+          "expected": {}
+        },
+        {
+          "name": "distinct later bus after a null gap waits for its lead threshold",
+          "chain": "rearmAfterGap",
+          "chainStep": "laterAfterGapBefore",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "distinct later bus after a null gap clears the old latch",
+          "chain": "rearmAfterGap",
+          "chainStep": "laterAfterGapBefore",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 180000, "notifiedEta": 1767268950000, "now": 1767268800000 },
+          "expected": { "notifiedEta": null }
+        },
+        {
+          "name": "distinct later bus after a null gap re-arms at its own threshold",
+          "chain": "rearmAfterGap",
+          "chainStep": "laterAfterGap",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 180000, "notifiedEta": null, "now": 1767268920000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "distinct later bus after a null gap becomes the new latch",
+          "chain": "rearmAfterGap",
+          "chainStep": "laterAfterGap",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 180000, "notifiedEta": null, "now": 1767268920000 },
+          "expected": { "notifiedEta": 1767269100000 }
+        },
+        {
+          "name": "ETA exactly at the lead threshold fires",
+          "input": { "remindMe": true, "nearestEta": 1767268980000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "ETA clearly above the lead threshold does not fire",
+          "input": { "remindMe": true, "nearestEta": 1767268980001, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "arriving-now ETA still fires without a lower cutoff",
+          "input": { "remindMe": true, "nearestEta": 1767268799000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "a 5-minute ETA fires at a 5-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 300000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "a 5-minute ETA fires at a 10-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 600000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "a 5-minute ETA stays quiet at a 3-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767269100000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "a 3-minute ETA fires at a 3-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767268980000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "a 3-minute ETA fires at a 5-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767268980000, "leadMs": 300000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "a 3-minute ETA fires at a 10-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767268980000, "leadMs": 600000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "an 8-minute ETA fires at a 10-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767269280000, "leadMs": 600000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": true }
+        },
+        {
+          "name": "an 8-minute ETA stays quiet at a 5-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767269280000, "leadMs": 300000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        },
+        {
+          "name": "an 8-minute ETA stays quiet at a 3-minute lead",
+          "input": { "remindMe": true, "nearestEta": 1767269280000, "leadMs": 180000, "notifiedEta": null, "now": 1767268800000 },
+          "expected": { "shouldNotify": false }
+        }
+      ]
+    },
+    "constants": {
+      "cases": [
+        { "name": "freshness threshold is pinned at 60 seconds", "input": { "key": "STALE_AFTER_MS" }, "expected": 60000 },
+        { "name": "reminder re-arm tolerance is pinned", "input": { "key": "REARM_TOLERANCE_MS" }, "expected": 90000 },
+        { "name": "reminder leads are pinned in order", "input": { "key": "REMINDER_LEADS" }, "expected": [3, 5, 10] }
+      ]
+    }
+  }
+}

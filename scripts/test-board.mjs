@@ -3,6 +3,84 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 
+const fixtureText = await readFile(
+  new URL('../shared/fixtures/board-logic.vectors.json', import.meta.url),
+  'utf8'
+);
+const vectors = JSON.parse(fixtureText);
+const { groups } = vectors;
+
+const expectedCaseCounts = {
+  compareBoardItems: 2,
+  compareBoardManual: 4,
+  reorderBoardOrder: 11,
+  resolveEtaDisplay: 12,
+  shouldRunBackground: 4,
+  evaluateFreshness: 8,
+  formatFreshnessAge: 6,
+  nextReminderLead: 1,
+  evaluateReminder: 37,
+  constants: 3
+};
+
+assert.equal(vectors.schemaVersion, 1, 'board logic vector schema version is supported');
+assert.deepEqual(
+  Object.keys(groups).sort(),
+  Object.keys(expectedCaseCounts).sort(),
+  'fixture declares exactly the expected BoardLogic groups'
+);
+
+let totalCaseCount = 0;
+
+function hasOwnPath(root, path) {
+  let current = root;
+  for (const segment of path.split('.')) {
+    if (current === null || current === undefined ||
+        !Object.prototype.hasOwnProperty.call(current, segment)) {
+      return false;
+    }
+    current = current[segment];
+  }
+  return true;
+}
+
+function casesFor(groupName) {
+  const group = groups[groupName];
+  assert.ok(group, `fixture group ${groupName} is present`);
+  assert.ok(Array.isArray(group.cases), `fixture group ${groupName} has cases`);
+  assert.ok(group.cases.length > 0, `fixture group ${groupName} is not empty`);
+  assert.equal(
+    group.cases.length,
+    expectedCaseCounts[groupName],
+    `${groupName} fixture case count is unchanged`
+  );
+  for (const vectorCase of group.cases) {
+    assert.equal(typeof vectorCase.name, 'string', `${groupName} case has a name`);
+    for (const absentKey of vectorCase.absentKeys || []) {
+      assert.equal(
+        hasOwnPath(vectorCase, absentKey),
+        false,
+        `${groupName} ${vectorCase.name}: absent key is omitted`
+      );
+    }
+  }
+  totalCaseCount += group.cases.length;
+  return group.cases;
+}
+
+function assertExpectedFields(actual, expected, name) {
+  for (const [key, value] of Object.entries(expected)) {
+    const actualValue = key === 'etaRows' && Array.isArray(actual[key])
+      ? Array.from(actual[key])
+      : actual[key];
+    assert.deepEqual(actualValue, value, name);
+  }
+}
+
+function pathValue(root, path) {
+  return path.split('.').reduce((value, segment) => value[segment], root);
+}
+
 const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const startMarker = '/* BOARD_LOGIC_START */';
 const endMarker = '/* BOARD_LOGIC_END */';
@@ -21,149 +99,106 @@ const logic = context.__boardLogic;
 assert.equal(typeof logic.compareBoardManual, 'function', 'BoardLogic exports compareBoardManual');
 assert.equal(typeof logic.reorderBoardOrder, 'function', 'BoardLogic exports reorderBoardOrder');
 
-const sampleBoard = [
-  { route: 'late', company: 'KMB', stopId: 'L', dir: 'outbound', nearestEta: 300000, boardOrder: 0 },
-  { route: 'tie-second', company: 'KMB', stopId: 'T2', dir: 'outbound', nearestEta: 120000, boardOrder: 2 },
-  { route: 'no-eta-first', company: 'KMB', stopId: 'N1', dir: 'outbound', nearestEta: null, boardOrder: 3 },
-  { route: 'early', company: 'KMB', stopId: 'E', dir: 'outbound', nearestEta: 60000, boardOrder: 4 },
-  { route: 'tie-first', company: 'KMB', stopId: 'T1', dir: 'outbound', nearestEta: 120000, boardOrder: 1 },
-  { route: 'no-eta-second', company: 'KMB', stopId: 'N2', dir: 'outbound', nearestEta: undefined, boardOrder: 5 }
-];
-
-const ordered = sampleBoard.slice().sort(logic.compareBoardItems);
-assert.deepEqual(
-  ordered.map(item => item.route),
-  ['early', 'tie-first', 'tie-second', 'late', 'no-eta-first', 'no-eta-second'],
-  'ETA ordering is ascending, stable for ties, and sinks unavailable cards'
-);
-
-const starredLater = { route: 'starred-later', company: 'KMB', stopId: 'S', dir: 'outbound', starred: true, nearestEta: 240000, boardOrder: 0 };
-const unstarredSooner = { route: 'unstarred-sooner', company: 'KMB', stopId: 'U', dir: 'outbound', starred: false, nearestEta: 180000, boardOrder: 1 };
-assert.equal(
-  logic.compareBoardItems(unstarredSooner, starredLater) < 0,
-  true,
-  'starred cards are not pinned ahead of a sooner ETA'
-);
-
-const manualOrder = [
-  { route: 'later-eta', company: 'KMB', stopId: 'M1', dir: 'outbound', nearestEta: 300000, boardOrder: 5 },
-  { route: 'earlier-order', company: 'KMB', stopId: 'M2', dir: 'outbound', nearestEta: 600000, boardOrder: 1 }
-].sort(logic.compareBoardManual);
-assert.deepEqual(
-  manualOrder.map(item => item.route),
-  ['earlier-order', 'later-eta'],
-  'manual ordering ignores ETA and puts the smaller boardOrder first'
-);
-
-const manualPresent = { route: 'present', company: 'KMB', stopId: 'MP', dir: 'outbound', nearestEta: 900000, boardOrder: 4 };
-const manualMissing = { route: 'missing', company: 'KMB', stopId: 'MM', dir: 'outbound', nearestEta: 1, boardOrder: Number.NaN };
-assert.equal(logic.compareBoardManual(manualMissing, manualPresent) > 0, true, 'missing boardOrder sinks behind a present order');
-assert.equal(logic.compareBoardManual(manualPresent, manualMissing) < 0, true, 'present boardOrder sorts before a missing order');
-
-const sameOrder = [
-  { route: 'B', company: 'KMB', stopId: 'S', dir: 'outbound', nearestEta: 999, boardOrder: 2 },
-  { route: 'A', company: 'KMB', stopId: 'S', dir: 'outbound', nearestEta: 1, boardOrder: 2 }
-].sort(logic.compareBoardManual);
-assert.deepEqual(
-  sameOrder.map(item => item.route),
-  ['A', 'B'],
-  'same boardOrder falls through to the deterministic board key'
-);
-
-const reorderItems = [
-  { id: 'A', boardOrder: 0, nearestEta: 10, etaRows: [{ etaMs: 10 }] },
-  { id: 'B', boardOrder: 1, nearestEta: 20, etaRows: [{ etaMs: 20 }] },
-  { id: 'C', boardOrder: 2, nearestEta: 30, etaRows: [{ etaMs: 30 }] },
-  { id: 'D', boardOrder: 3, nearestEta: 40, etaRows: [{ etaMs: 40 }] }
-];
-const reorderSnapshot = structuredClone(reorderItems);
-const reordered = logic.reorderBoardOrder(reorderItems, 1, 3);
-assert.deepEqual(reordered.map(item => item.id), ['A', 'C', 'D', 'B'], 'reorder moves the requested item to its target index');
-assert.deepEqual(reordered.map(item => item.boardOrder), [0, 1, 2, 3], 'reorder compacts boardOrder to the resulting positions');
-assert.deepEqual(reorderItems, reorderSnapshot, 'reorder does not mutate the input array or its items');
-assert.equal(reordered.every(item => !reorderItems.includes(item)), true, 'reorder returns shallow-cloned items');
-
-assert.doesNotThrow(() => logic.reorderBoardOrder(reorderItems, -1, 2), 'out-of-range reorder is safe');
-const outOfRange = logic.reorderBoardOrder(
-  [{ id: 'A', boardOrder: 8 }, { id: 'B', boardOrder: 3 }],
-  -1,
-  2
-);
-assert.deepEqual(outOfRange.map(item => item.id), ['A', 'B'], 'out-of-range reorder keeps the sequence');
-assert.deepEqual(outOfRange.map(item => item.boardOrder), [0, 1], 'out-of-range reorder still compacts order');
-
-const equalIndex = logic.reorderBoardOrder(reorderItems, 2, 2);
-assert.deepEqual(equalIndex.map(item => item.id), ['A', 'B', 'C', 'D'], 'equal-index reorder keeps the sequence');
-assert.deepEqual(equalIndex.map(item => item.boardOrder), [0, 1, 2, 3], 'equal-index reorder compacts order');
-const invalidInputResult = logic.reorderBoardOrder(null, 0, 1);
-assert.equal(Array.isArray(invalidInputResult), true, 'non-array reorder input returns an array');
-assert.equal(invalidInputResult.length, 0, 'non-array reorder input returns an empty array');
-
+for (const vectorCase of casesFor('compareBoardItems')) {
+  const { input, expected } = vectorCase;
+  if (expected.orderedRoutes) {
+    const ordered = input.items.slice().sort(logic.compareBoardItems);
+    assert.deepEqual(ordered.map(item => item.route), expected.orderedRoutes, vectorCase.name);
+  }
+  if (expected.comparisonSign !== undefined) {
+    assert.equal(
+      Math.sign(logic.compareBoardItems(input.a, input.b)),
+      expected.comparisonSign,
+      vectorCase.name
+    );
+  }
+}
 console.log('PASS: board ordering regression tests');
+
+for (const vectorCase of casesFor('compareBoardManual')) {
+  const { input, expected } = vectorCase;
+  if (expected.orderedRoutes) {
+    const ordered = input.items.slice().sort(logic.compareBoardManual);
+    assert.deepEqual(ordered.map(item => item.route), expected.orderedRoutes, vectorCase.name);
+  }
+  if (expected.comparisonSign !== undefined) {
+    assert.equal(
+      Math.sign(logic.compareBoardManual(input.a, input.b)),
+      expected.comparisonSign,
+      vectorCase.name
+    );
+  }
+}
 console.log('PASS: manual sort and reorder regression tests');
 
+for (const vectorCase of casesFor('reorderBoardOrder')) {
+  const { input, expected } = vectorCase;
+  const snapshot = vectorCase.assertInputUnchanged ? structuredClone(input.items) : null;
+  let reordered;
+  if (vectorCase.assertNoThrow) {
+    assert.doesNotThrow(() => {
+      reordered = logic.reorderBoardOrder(input.items, input.fromIndex, input.toIndex);
+    }, vectorCase.name);
+  } else {
+    reordered = logic.reorderBoardOrder(input.items, input.fromIndex, input.toIndex);
+  }
+  if (vectorCase.assertInputUnchanged) {
+    assert.deepEqual(input.items, snapshot, vectorCase.name);
+  }
+  if (vectorCase.assertClonedItems) {
+    assert.equal(reordered.every(item => !input.items.includes(item)), true, vectorCase.name);
+  }
+  if (expected.orderedIds) {
+    assert.deepEqual(reordered.map(item => item.id), expected.orderedIds, vectorCase.name);
+  }
+  if (expected.boardOrders) {
+    assert.deepEqual(reordered.map(item => item.boardOrder), expected.boardOrders, vectorCase.name);
+  }
+  if (expected.isArray !== undefined) {
+    assert.equal(Array.isArray(reordered), expected.isArray, vectorCase.name);
+  }
+  if (expected.length !== undefined) {
+    assert.equal(reordered.length, expected.length, vectorCase.name);
+  }
+}
+console.log('PASS: reorderBoardOrder regression tests');
+
 assert.equal(typeof logic.resolveEtaDisplay, 'function', 'BoardLogic exports resolveEtaDisplay');
-const etaRows = [{ etaMs: 1 }, { etaMs: 2 }];
-
-const freshEta = logic.resolveEtaDisplay({}, { ok: true, rows: etaRows });
-assert.equal(freshEta.etaRows, etaRows, 'successful ETA rows are used for fresh display');
-assert.equal(freshEta.nearestEta, 1, 'successful ETA rows set the nearest ETA');
-assert.equal(freshEta.etaStale, false, 'successful ETA rows are not stale');
-
-const emptyEta = logic.resolveEtaDisplay({}, { ok: true, rows: [] });
-assert.deepEqual(Array.from(emptyEta.etaRows), [], 'successful empty ETA rows stay empty');
-assert.equal(emptyEta.nearestEta, null, 'successful empty ETA rows have no nearest ETA');
-assert.equal(emptyEta.etaStale, false, 'successful empty ETA rows are not stale');
-
-const retainedEta = logic.resolveEtaDisplay({ etaRows }, { ok: false, rows: null });
-assert.equal(retainedEta.etaRows, etaRows, 'failed ETA fetch retains prior non-empty rows');
-assert.equal(retainedEta.nearestEta, null, 'stale ETA rows never set a nearest ETA');
-assert.equal(retainedEta.etaStale, true, 'retained ETA rows are marked stale');
-
-const unavailableEta = logic.resolveEtaDisplay({ etaRows: null }, { ok: false, rows: null });
-assert.equal(unavailableEta.etaRows, null, 'failed ETA fetch without prior rows stays unavailable');
-assert.equal(unavailableEta.nearestEta, null, 'failed ETA fetch without prior rows has no nearest ETA');
-assert.equal(unavailableEta.etaStale, false, 'failed ETA fetch without prior rows is not stale');
-
+for (const vectorCase of casesFor('resolveEtaDisplay')) {
+  const { input, expected } = vectorCase;
+  const resolved = logic.resolveEtaDisplay(input.previous, input.outcome);
+  if (vectorCase.assertRowsIdentity) {
+    assert.equal(
+      resolved.etaRows,
+      pathValue(input, vectorCase.assertRowsIdentity),
+      vectorCase.name
+    );
+  }
+  assertExpectedFields(resolved, expected, vectorCase.name);
+}
 console.log('PASS: ETA display resolver truth table');
 
 assert.equal(typeof logic.shouldRunBackground, 'function', 'BoardLogic exports shouldRunBackground');
-assert.equal(logic.shouldRunBackground(false, true), true, 'visible active board runs background work');
-assert.equal(logic.shouldRunBackground(false, false), false, 'visible inactive board does not run background work');
-assert.equal(logic.shouldRunBackground(true, true), false, 'hidden active board does not run background work');
-assert.equal(logic.shouldRunBackground(true, false), false, 'hidden inactive board does not run background work');
-
+for (const vectorCase of casesFor('shouldRunBackground')) {
+  const actual = logic.shouldRunBackground(
+    vectorCase.input.hidden,
+    vectorCase.input.boardActive
+  );
+  assert.equal(actual, vectorCase.expected, vectorCase.name);
+}
 console.log('PASS: visibility background predicate truth table');
 
 assert.equal(typeof logic.evaluateFreshness, 'function', 'BoardLogic exports evaluateFreshness');
-assert.equal(logic.STALE_AFTER_MS, 60_000, 'freshness threshold is pinned at 60 seconds');
-
-const FRESHNESS_NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
-const STALE_AFTER_MS = logic.STALE_AFTER_MS;
-
-function freshness(lastSuccessMs, now = FRESHNESS_NOW) {
-  return logic.evaluateFreshness({ lastSuccessMs, now, staleAfterMs: STALE_AFTER_MS });
+for (const vectorCase of casesFor('evaluateFreshness')) {
+  const { input, expected } = vectorCase;
+  if (expected.olderAgeGreater !== undefined) {
+    const newer = logic.evaluateFreshness(input.newer);
+    const older = logic.evaluateFreshness(input.older);
+    assert.equal(older.ageMs > newer.ageMs, expected.olderAgeGreater, vectorCase.name);
+  } else {
+    assertExpectedFields(logic.evaluateFreshness(input), expected, vectorCase.name);
+  }
 }
-
-const fresh = freshness(FRESHNESS_NOW - STALE_AFTER_MS + 1);
-assert.equal(fresh.stale, false, 'freshness stays fresh below the stale threshold');
-assert.equal(fresh.ageMs, STALE_AFTER_MS - 1, 'freshness reports the exact age below the threshold');
-
-const boundary = freshness(FRESHNESS_NOW - STALE_AFTER_MS);
-assert.equal(boundary.stale, true, 'freshness is stale at the exact threshold boundary');
-assert.equal(boundary.ageMs, STALE_AFTER_MS, 'freshness reports the exact boundary age');
-
-const stale = freshness(FRESHNESS_NOW - STALE_AFTER_MS - 1);
-assert.equal(stale.stale, true, 'freshness remains stale above the threshold');
-
-const noSuccess = freshness(null);
-assert.equal(noSuccess.stale, false, 'no successful refresh yet is not treated as stale');
-assert.equal(noSuccess.ageMs, null, 'no successful refresh yet reports no age');
-
-const newer = freshness(FRESHNESS_NOW - STALE_AFTER_MS - 1);
-const older = freshness(FRESHNESS_NOW - STALE_AFTER_MS - 60_000);
-assert.equal(older.ageMs > newer.ageMs, true, 'an older successful refresh has a larger age');
-
 console.log('PASS: freshness logic regression tests');
 
 const freshnessAgeStart = html.indexOf('function formatFreshnessAge');
@@ -177,178 +212,70 @@ const freshnessAgeSource = html.slice(freshnessAgeStart, freshnessAgeEnd) +
 new vm.Script(freshnessAgeSource, { filename: 'index.html#formatFreshnessAge' })
   .runInContext(freshnessAgeContext);
 const formatFreshnessAge = freshnessAgeContext.__formatFreshnessAge;
-assert.equal(formatFreshnessAge(0), '更新於 0 秒前 · Updated 0s ago', 'freshness age formats zero seconds');
-assert.equal(formatFreshnessAge(59_000), '更新於 59 秒前 · Updated 59s ago', 'freshness age formats 59 seconds');
-assert.equal(formatFreshnessAge(60_000), '更新於 1 分鐘前 · Updated 1m ago', 'freshness age rolls over at one minute');
-assert.equal(formatFreshnessAge(119_000), '更新於 1 分鐘前 · Updated 1m ago', 'freshness age floors 119 seconds to one minute');
-assert.equal(formatFreshnessAge(120_000), '更新於 2 分鐘前 · Updated 2m ago', 'freshness age formats two minutes');
-assert.equal(formatFreshnessAge(-5_000), '更新於 0 秒前 · Updated 0s ago', 'freshness age clamps negative values to zero');
-
+for (const vectorCase of casesFor('formatFreshnessAge')) {
+  const decodedExpected = JSON.parse(JSON.stringify(vectorCase.expected));
+  assert.equal(
+    formatFreshnessAge(vectorCase.input.ageMs),
+    decodedExpected,
+    vectorCase.name
+  );
+}
 console.log('PASS: freshness age formatting boundary tests');
 
-assert.equal(typeof logic.evaluateReminder, 'function', 'BoardLogic exports evaluateReminder');
-assert.equal(logic.REARM_TOLERANCE_MS, 90_000, 'reminder re-arm tolerance is pinned');
-assert.deepEqual(Array.from(logic.REMINDER_LEADS), [3, 5, 10], 'reminder leads are pinned in order');
-
-let currentLead = null;
-const leadCycle = [];
-for (let i = 0; i < 4; i++) {
-  const next = logic.nextReminderLead(currentLead);
-  leadCycle.push({ remindMe: next.remindMe, remindLeadMin: next.remindLeadMin });
-  currentLead = next.remindMe ? next.remindLeadMin : null;
+assert.equal(typeof logic.nextReminderLead, 'function', 'BoardLogic exports nextReminderLead');
+for (const vectorCase of casesFor('nextReminderLead')) {
+  let currentLead = vectorCase.input.startingLead;
+  const cycle = [];
+  for (let i = 0; i < vectorCase.input.steps; i++) {
+    const next = logic.nextReminderLead(currentLead);
+    cycle.push({ remindMe: next.remindMe, remindLeadMin: next.remindLeadMin });
+    currentLead = next.remindMe ? next.remindLeadMin : null;
+  }
+  assert.deepEqual(cycle, vectorCase.expected.cycle, vectorCase.name);
 }
-assert.deepEqual(
-  leadCycle,
-  [
-    { remindMe: true, remindLeadMin: 3 },
-    { remindMe: true, remindLeadMin: 5 },
-    { remindMe: true, remindLeadMin: 10 },
-    { remindMe: false, remindLeadMin: null }
-  ],
-  'reminder lead cycle is exactly Off to 3 to 5 to 10 to Off'
-);
-
 console.log('PASS: reminder lead cycle regression tests');
 
-const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
-const LEAD_MS = 3 * 60 * 1000;
-
-function reminder(overrides, now = NOW) {
-  return logic.evaluateReminder({
-    remindMe: true,
-    nearestEta: NOW + LEAD_MS,
-    leadMs: LEAD_MS,
-    notifiedEta: null,
-    ...overrides
-  }, now);
+assert.equal(typeof logic.evaluateReminder, 'function', 'BoardLogic exports evaluateReminder');
+const chainResults = new Map();
+for (const vectorCase of casesFor('evaluateReminder')) {
+  if (vectorCase.chainAssertion) continue;
+  const { input, expected } = vectorCase;
+  const actual = logic.evaluateReminder({
+    remindMe: input.remindMe,
+    nearestEta: input.nearestEta,
+    leadMs: input.leadMs,
+    notifiedEta: input.notifiedEta
+  }, input.now);
+  assertExpectedFields(actual, expected, vectorCase.name);
+  if (vectorCase.chain) {
+    if (!chainResults.has(vectorCase.chain)) chainResults.set(vectorCase.chain, new Map());
+    chainResults.get(vectorCase.chain).set(vectorCase.chainStep, actual);
+  }
 }
-
-const notYet = reminder({ nearestEta: NOW + LEAD_MS + 1_000 });
-assert.equal(notYet.shouldNotify, false, 'reminder stays quiet above the lead threshold');
-
-const firstEta = NOW + LEAD_MS - 30_000;
-const first = reminder({ nearestEta: firstEta });
-assert.equal(first.shouldNotify, true, 'armed reminder fires when ETA crosses within the lead time');
-assert.equal(first.notifiedEta, firstEta, 'first notification latches the bus ETA');
-
-const sameBus = reminder({
-  nearestEta: firstEta - 30_000,
-  notifiedEta: first.notifiedEta
-}, NOW + 15_000);
-assert.equal(sameBus.shouldNotify, false, 'same bus does not fire again on the next refresh');
-assert.equal(sameBus.notifiedEta, first.notifiedEta, 'same-bus latch survives normal ETA drift');
-
-const laterEta = firstEta + 8 * 60 * 1000;
-const laterBeforeLead = reminder({
-  nearestEta: laterEta,
-  notifiedEta: first.notifiedEta
-}, firstEta + 30_000);
-assert.equal(laterBeforeLead.shouldNotify, false, 'distinct later bus does not fire before its lead threshold');
-assert.equal(laterBeforeLead.notifiedEta, null, 'distinct later bus clears the previous latch');
-
-const later = reminder({
-  nearestEta: laterEta,
-  notifiedEta: laterBeforeLead.notifiedEta
-}, laterEta - LEAD_MS);
-assert.equal(later.shouldNotify, true, 'distinctly later next bus re-arms and fires');
-assert.equal(later.notifiedEta, laterEta, 'later bus becomes the new latched ETA');
-
-const unarmed = logic.evaluateReminder({
-  remindMe: false,
-  nearestEta: NOW,
-  leadMs: LEAD_MS,
-  notifiedEta: firstEta
-}, NOW);
-assert.equal(unarmed.shouldNotify, false, 'unarmed card never fires');
-assert.equal(unarmed.notifiedEta, null, 'unarmed card clears its latch');
-assert.equal(unarmed.minutes, null, 'unarmed card has no ETA minutes');
-
-const unavailable = logic.evaluateReminder({
-  remindMe: true,
-  nearestEta: null,
-  leadMs: LEAD_MS,
-  notifiedEta: firstEta
-}, NOW);
-assert.equal(unavailable.shouldNotify, false, 'missing ETA never fires');
-assert.equal(unavailable.notifiedEta, firstEta, 'missing ETA preserves the unavailable bus latch');
-assert.equal(unavailable.minutes, null, 'missing ETA has no ETA minutes');
-
-const transientFirst = reminder({ nearestEta: NOW + LEAD_MS - 30_000 });
-assert.equal(transientFirst.shouldNotify, true, 'transient-gap scenario fires the first reminder');
-
-let transientFireCount = transientFirst.shouldNotify ? 1 : 0;
-const transientGap = reminder({
-  nearestEta: null,
-  notifiedEta: transientFirst.notifiedEta
-});
-transientFireCount += transientGap.shouldNotify ? 1 : 0;
-assert.equal(transientGap.shouldNotify, false, 'transient null gap does not fire');
-assert.equal(transientGap.notifiedEta, transientFirst.notifiedEta, 'transient null gap holds the fired latch');
-
-const transientRecovery = reminder({
-  nearestEta: transientFirst.notifiedEta - 30_000,
-  notifiedEta: transientGap.notifiedEta
-}, NOW + 15_000);
-transientFireCount += transientRecovery.shouldNotify ? 1 : 0;
-assert.equal(transientRecovery.shouldNotify, false, 'same bus recovery does not fire a duplicate reminder');
-assert.equal(transientRecovery.notifiedEta, transientFirst.notifiedEta, 'same bus recovery keeps the held latch');
-assert.equal(transientFireCount, 1, 'same bus fires exactly once across a transient null gap');
-
-const laterAfterGapEta = transientFirst.notifiedEta + logic.REARM_TOLERANCE_MS + 60_000;
-const laterAfterGapBeforeLead = reminder({
-  nearestEta: laterAfterGapEta,
-  notifiedEta: transientGap.notifiedEta
-});
-assert.equal(laterAfterGapBeforeLead.shouldNotify, false, 'distinct later bus after a null gap waits for its lead threshold');
-assert.equal(laterAfterGapBeforeLead.notifiedEta, null, 'distinct later bus after a null gap clears the old latch');
-
-const laterAfterGap = reminder({
-  nearestEta: laterAfterGapEta,
-  notifiedEta: laterAfterGapBeforeLead.notifiedEta
-}, laterAfterGapEta - LEAD_MS);
-assert.equal(laterAfterGap.shouldNotify, true, 'distinct later bus after a null gap re-arms at its own threshold');
-assert.equal(laterAfterGap.notifiedEta, laterAfterGapEta, 'distinct later bus after a null gap becomes the new latch');
-
+for (const vectorCase of groups.evaluateReminder.cases) {
+  if (!vectorCase.chainAssertion) continue;
+  const results = chainResults.get(vectorCase.chainAssertion.chain);
+  assert.ok(results, vectorCase.name);
+  const fireCount = [...results.values()].filter(result => result.shouldNotify === true).length;
+  assert.equal(
+    fireCount,
+    vectorCase.chainAssertion.shouldNotifyCount,
+    vectorCase.name
+  );
+}
+console.log('PASS: evaluateReminder regression tests');
 console.log('PASS: transient-null reminder latch regression tests');
-
-const atBoundary = reminder({ nearestEta: NOW + LEAD_MS });
-assert.equal(atBoundary.shouldNotify, true, 'ETA exactly at the lead threshold fires');
-
-const aboveBoundary = reminder({ nearestEta: NOW + LEAD_MS + 1 });
-assert.equal(aboveBoundary.shouldNotify, false, 'ETA clearly above the lead threshold does not fire');
-
-const arrivingNow = reminder({ nearestEta: NOW - 1_000 });
-assert.equal(arrivingNow.shouldNotify, true, 'arriving-now ETA still fires without a lower cutoff');
-
-function reminderAtLead(minutesOut, leadMin) {
-  return logic.evaluateReminder({
-    remindMe: true,
-    nearestEta: NOW + minutesOut * 60_000,
-    leadMs: leadMin * 60_000,
-    notifiedEta: null
-  }, NOW);
-}
-
-for (const leadMin of [5, 10]) {
-  assert.equal(
-    reminderAtLead(5, leadMin).shouldNotify,
-    true,
-    `a 5-minute ETA fires at a ${leadMin}-minute lead`
-  );
-}
-assert.equal(reminderAtLead(5, 3).shouldNotify, false, 'a 5-minute ETA stays quiet at a 3-minute lead');
-for (const leadMin of [3, 5, 10]) {
-  assert.equal(
-    reminderAtLead(3, leadMin).shouldNotify,
-    true,
-    `a 3-minute ETA fires at a ${leadMin}-minute lead`
-  );
-}
-assert.equal(reminderAtLead(8, 10).shouldNotify, true, 'an 8-minute ETA fires at a 10-minute lead');
-assert.equal(reminderAtLead(8, 5).shouldNotify, false, 'an 8-minute ETA stays quiet at a 5-minute lead');
-assert.equal(reminderAtLead(8, 3).shouldNotify, false, 'an 8-minute ETA stays quiet at a 3-minute lead');
-
 console.log('PASS: lead-driven reminder threshold regression tests');
+
+for (const vectorCase of casesFor('constants')) {
+  const actual = vectorCase.input.key === 'REMINDER_LEADS'
+    ? Array.from(logic[vectorCase.input.key])
+    : logic[vectorCase.input.key];
+  assert.deepEqual(actual, vectorCase.expected, vectorCase.name);
+}
+console.log('PASS: constants regression tests');
+
+const NOW = Date.UTC(2026, 0, 1, 12, 0, 0);
 
 const persistenceStart = html.indexOf('function loadBoard()');
 const persistenceEnd = html.indexOf('function nextBoardOrder()', persistenceStart);
@@ -402,3 +329,4 @@ assert.equal('remindNotifiedEta' in persistedArmed, false, 'runtime latch is nev
 assert.equal('nearestEta' in persistedArmed, false, 'runtime ETA remains excluded from persistence');
 
 console.log('PASS: arrival reminder regression tests');
+console.log(`PASS: total fixture cases asserted: ${totalCaseCount}`);
