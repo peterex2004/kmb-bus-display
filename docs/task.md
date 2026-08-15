@@ -5,144 +5,145 @@ this file; Codex executes against it. SPEC.md would be the technical source of
 truth but none exists yet — CLAUDE.md governance applies.
 
 ## Objective
-**iOS port, Phase 0 — shared golden vectors.** Extract the language-neutral
-behavioural assertions currently hard-coded in `scripts/test-board.mjs` into a
-versioned JSON fixture at `shared/fixtures/board-logic.vectors.json`, and
-refactor `test-board.mjs` to drive those assertions **from the fixture**. The
-same fixture will later be consumed by the Swift `BoardCore` unit tests, making
-web↔iOS behavioural parity machine-checked rather than assumed.
+**iOS port, Phase 1 — `BoardCore`.** Create a pure, dependency-free Swift
+package at `ios/BoardCore/` that re-implements the web `BoardLogic` seam, and
+prove it satisfies **all 88 cases** in `shared/fixtures/board-logic.vectors.json`
+— the same file the JavaScript gate asserts against. No UI, no networking, no
+app target.
 
 ## Background
-The planned iOS app (native SwiftUI) will re-implement the `BoardLogic` seam in
-Swift. `BoardLogic` is already pure and DOM-free — it is the domain model. The
-single biggest correctness risk in a port is silent behavioural drift between
-the two implementations. A shared, language-neutral vector file removes that
-risk: both implementations must satisfy byte-identical expectations.
+`CLAUDE.md` §1–§2 now define two delivery targets (amended 2026-08-15). The iOS
+target is native SwiftUI, Apple frameworks only, **no third-party dependencies**.
+`docs/ios-architecture.md` holds the design; this contract executes its Phase 1.
 
-This phase is **test-infrastructure only**. It introduces no build step, no
-framework, and no iOS code, so it needs no governance change and is safe to land
-in the web repo on its own merits (it also makes the existing suite
-data-driven and easier to extend).
+The golden vectors are the *shared specification*. If `BoardCore` and
+`BoardLogic` disagree, the web and iOS apps have silently drifted — which is the
+exact failure this phase exists to make impossible.
 
 ## Scope
-- **NEW** `shared/fixtures/board-logic.vectors.json` — the versioned vector file.
-- `scripts/test-board.mjs` — load the fixture and drive the portable assertions
-  from it; keep the JS-only tests inline (see "Stays inline" below).
-- Optionally a small loader helper inside `test-board.mjs` (no new dependency,
-  no new npm package, no build step).
+- **NEW** `ios/BoardCore/` — a SwiftPM library package:
+  - `Package.swift` (library + test target, **zero dependencies**)
+  - `Sources/BoardCore/` — the domain functions
+  - `Tests/BoardCoreTests/` — a vector-driven runner
+- **NEW/EDIT** `.gitignore` — ignore Swift build artefacts (`.build/`,
+  `*.xcuserdatad`, `DerivedData/`).
+- Optionally a short `ios/README.md` describing how to run the tests.
 
 ## Out of scope — HARD constraints
-- **`index.html` MUST NOT change.** Phase 0 touches zero production code. A diff
-  that modifies `index.html` is an automatic fail.
-- No new runtime dependency, package manager, bundler, or build step.
-- No change to `scripts/validate-js.js` behaviour (it must still run
-  `test-board.mjs` and fail the gate on any assertion failure).
-- No change to any assertion's *meaning*, threshold, or expected value. This is
-  a **pure re-expression** of existing expectations, not a re-baselining.
+- **`index.html` MUST NOT change.** Neither may `scripts/validate-js.js` or
+  `scripts/test-board.mjs` behaviour.
+- **`shared/fixtures/board-logic.vectors.json` MUST NOT change.** Not one
+  expected value, not one case. If Swift disagrees with a vector, **the Swift
+  code is wrong** — fix the Swift. Editing a vector to make a test pass is
+  changing the definition of correctness → STOP and ESCALATE (§5).
+- **Do NOT copy or duplicate the fixture** into the package. The test must read
+  the one file at `shared/fixtures/`. A copy guarantees future drift and defeats
+  the entire phase.
+- No Xcode `.xcodeproj`, no app target, no SwiftUI, no networking, no
+  persistence — those are Phases 2–4.
+- No third-party dependency of any kind.
 
-## Vector file format
-Language-neutral JSON — no JS-only constructs (no `undefined`, no `NaN`
-literals, no functions). Use `null` for absent values and an explicit sentinel
-(e.g. `{"missing": true}` or omission of the key) where a case must distinguish
-"absent" from "null"; document the convention in the file itself.
+## API to implement (mirroring `BoardLogic`)
+All pure. **No `Date()` / `Date.now` anywhere inside `BoardCore`** — time is
+injected, exactly as on the web.
 
-Required top-level shape:
+| Web | Swift |
+|---|---|
+| `compareBoardItems` | `BoardComparator.auto(_:_:) -> ComparisonResult` |
+| `compareBoardManual` | `BoardComparator.manual(_:_:) -> ComparisonResult` |
+| `reorderBoardOrder` | `reorder(_:from:to:) -> [BoardItem]` |
+| `evaluateReminder` | `ReminderEngine.evaluate(_:now:)` |
+| `nextReminderLead` | `ReminderEngine.nextLead(_:)` |
+| `evaluateFreshness` | `FreshnessEvaluator.evaluate(_:now:staleAfterMs:)` |
+| `resolveEtaDisplay` | `EtaResolver.resolve(previous:outcome:)` |
+| `shouldRunBackground` | `RefreshPolicy.shouldRun(hidden:boardActive:)` |
+| `formatFreshnessAge` | `FreshnessFormatter.age(_:) -> String` |
 
-```json
-{
-  "schemaVersion": 1,
-  "description": "...",
-  "constants": { "STALE_AFTER_MS": 60000, "REARM_TOLERANCE_MS": 90000,
-                 "REMINDER_LEADS": [3, 5, 10] },
-  "epoch": { "NOW": 1767268800000, "FRESHNESS_NOW": 1767268800000 },
-  "groups": {
-    "compareBoardItems": { "cases": [ { "name": "...", "input": {...},
-                                       "expected": {...} } ] },
-    "...": {}
-  }
-}
-```
+Constants must match the fixture's `constants` group exactly:
+`staleAfterMs` 60000, `rearmToleranceMs` 90000, `reminderLeads` [3, 5, 10].
 
-Resolve every chained/derived value to a **literal number** computed from the
-declared epoch, so a consumer needs no JS evaluation to use the file. Each case
-carries a `name` — reuse the existing assertion message verbatim so failures
-stay traceable to today's wording.
+## Known portability traps — handle explicitly
+These are the places a naive port silently diverges. Each MUST be addressed and
+called out in the report:
 
-## Groups that MUST be covered (all currently asserted behaviour)
-1. `compareBoardItems` — the 6-item ordering sample; starred-not-pinned-ahead.
-2. `compareBoardManual` — ETA-ignoring order; missing `boardOrder` sinks (both
-   argument orders); same-`boardOrder` deterministic-key fallthrough.
-3. `reorderBoardOrder` — move+compact; input-not-mutated; shallow-cloned items;
-   out-of-range; equal-index; non-array input.
-4. `resolveEtaDisplay` — the 4-case truth table (incl. **stale ⇒ nearestEta
-   null**).
-5. `shouldRunBackground` — the 4-case truth table.
-6. `evaluateFreshness` — below/at/above threshold, no-successful-refresh,
-   older-has-larger-age.
-7. `formatFreshnessAge` — 0s, 59s, 60s rollover, 119s floor, 120s, negative
-   clamp (exact bilingual strings preserved byte-for-byte).
-8. `nextReminderLead` — the full Off→3→5→10→Off cycle.
-9. `evaluateReminder` — every currently-asserted scenario: not-yet, first fire,
-   same-bus drift, distinct-later-bus before/at lead, unarmed, missing-ETA latch
-   hold, the transient-null gap chain (fires exactly once), re-arm after gap,
-   at/above lead boundary, arriving-now, and the lead-matrix
-   (`reminderAtLead`) cases.
-10. `constants` — `STALE_AFTER_MS`, `REARM_TOLERANCE_MS`, `REMINDER_LEADS`.
+1. **Natural/numeric string ordering.** The web tiebreak is
+   `keyA.localeCompare(keyB, undefined, { numeric: true })` — numeric-aware, so
+   `"2" < "10"`. Swift's default `<` on `String` is **not**. Use
+   `compare(_:options: .numeric)` (or an equivalent that reproduces the numeric
+   collation) and add a test proving `route "2"` sorts before `route "10"`.
+2. **Sort stability.** JS `Array.sort` is specified stable; Swift's `sort()` is
+   **not guaranteed stable**. The comparators end in a deterministic key, so the
+   ordering should be a *total* order and stability should not matter — verify
+   that, and add a test that sorting is deterministic regardless of input
+   permutation (e.g. sort several shuffles of the same input, assert identical
+   output).
+3. **Integer semantics.** Epoch-ms values (~1.767e12) exceed Int32 — use 64-bit
+   `Int`. Note JS `Math.floor` on negatives differs from Swift integer division
+   truncation; `formatFreshnessAge` clamps at 0 first so the observable result
+   matches, but confirm the negative-input vector passes rather than assuming.
 
-## Stays inline in test-board.mjs (JS-only, NOT vectorised)
-- The `vm` extraction machinery and marker assertions.
-- The `loadBoard`/`saveBoard` **localStorage persistence** tests — these bind to
-  a web-only storage mechanism; iOS will use a different persistence layer.
-  Keep them exactly as they are today.
+## Fixture consumption rules
+- Resolve the fixture path relative to the **source file** (e.g. via
+  `#filePath` walked up to repo root), NOT the CWD, so `swift test` works from
+  any directory. Do not embed it as a package resource copy.
+- Honour `absentKeys`: a listed dot-path is *absent* from the input at that
+  path. Both absent and JSON `null` map to Swift `nil` for these fields (the
+  distinction is not semantically meaningful to `BoardLogic`); the runner must
+  still parse `absentKeys` and construct the case accordingly rather than
+  ignoring the field.
+- Honour the property flags: `assertInputUnchanged` (input array/items not
+  mutated), `assertClonedItems` (returned items are distinct values), and
+  `assertRowsIdentity` (the returned rows are the same rows as the named input
+  path — in Swift, value equality is the portable reading).
+- Preserve the bilingual `formatFreshnessAge` strings byte-for-byte, e.g.
+  `更新於 1 分鐘前 · Updated 1m ago`.
 
 ## Functional requirements
-1. Every assertion that exists today still runs and still passes.
-2. The portable assertions are **driven by the fixture** — editing an expected
-   value in the JSON must change what the test asserts (no duplicated
-   hard-coded expectations left behind shadowing the fixture).
-3. **No silent coverage loss.** The runner must fail if a declared group has
-   zero cases, and must assert a per-group expected case count so that
-   accidentally dropping cases breaks the gate.
-4. The runner prints a clear per-group PASS line and a total case count.
-5. The existing `PASS:` lines consumed by humans/CI stay recognisable (keep the
-   same wording where a group maps 1:1 to a current line).
+1. Every one of the 88 vector cases is executed and passes.
+2. The runner is **driven by the fixture** — no expected values hard-coded in
+   Swift. Corrupting a vector must fail the Swift tests.
+3. **No silent coverage loss.** Assert a per-group case count and a total of 88,
+   and fail if a declared group is empty or a group is missing — mirroring the
+   JS runner's guard.
+4. A failing case reports the vector's `name` so failures are traceable to the
+   same wording as the web suite.
+5. The JS gate still passes untouched.
 
 ## Non-functional requirements
-- Pure Node, no dependencies. Fixture read via `node:fs/promises` + `JSON.parse`.
-- The fixture must be readable by a non-JS consumer (Swift `Codable`) without
-  preprocessing — that is the whole point.
-- Keep the bilingual expected strings exactly as today (UTF-8, no escaping
-  changes that alter the decoded value).
+- Zero dependencies. Swift 6 / iOS 17+ language level is fine; the package
+  itself must build for macOS too so `swift test` runs on the CLI.
+- `BoardCore` is UI-free, IO-free (the *tests* do the file read, not the
+  library), and deterministic.
+- Public API documented briefly; naming idiomatic Swift, but behaviour identical
+  to the web.
 
 ## Acceptance criteria
-- `node scripts/validate-js.js` green, exit 0, **no skips**.
-- `git diff --stat origin/main` shows **`index.html` untouched**; only
-  `docs/task.md`, `shared/fixtures/board-logic.vectors.json`, and
-  `scripts/test-board.mjs` change.
-- Deliberately corrupting one expected value in the fixture makes the gate
-  **fail** (prove the tests really read the file) — demonstrate this in the
-  report, then restore the file.
-- Total asserted case count is reported and is ≥ the number of portable
-  assertions present today.
+- `swift test` from `ios/BoardCore` — **all tests pass**, 88 cases asserted,
+  count guards active.
+- `node scripts/validate-js.js` still green (web target unaffected).
+- `git diff --name-only origin/main` shows **no** `index.html`, **no**
+  `shared/fixtures/**`, **no** `scripts/**` changes.
+- Corrupting one vector value makes `swift test` **fail** (proof the fixture
+  drives the Swift tests too); restore afterwards.
+- Build artefacts (`.build/`) are gitignored, not committed.
 
 ## Required validation
+cd ios/BoardCore && swift test
 node scripts/validate-js.js
-<!-- Plus the fixture-drives-the-test proof described above. Do NOT weaken
-     "passing", and do NOT change any expected value. -->
+<!-- Both must pass. Do NOT weaken either. Do NOT edit the fixture. -->
 
 ## Risk classification
-LOW — test-infrastructure only; production code untouched. The one real risk is
-silent coverage loss during extraction, which requirement 3 (per-group expected
-counts) and the corruption proof are designed to catch. Proceeds automatically;
-human owns the final merge.
+MEDIUM — new language and toolchain, but a narrow, pure, fully-specified
+surface with an 88-case executable spec. The real risks are the three
+portability traps above and accidentally "fixing" a vector instead of the code.
+Proceeds automatically; human owns the final merge.
 
 ## Human approval requirements
-None to proceed. Human owns the final merge (auto-merge off). Note: the broader
-iOS port (Xcode project, Swift target) is **not** authorised by this contract —
-CLAUDE.md §2's no-build-tools rule is still pending a human decision. Phase 0
-deliberately stays inside the existing web repo's rules.
+None to proceed — the iOS target is authorised by CLAUDE.md §2 (amended
+2026-08-15). Human owns the final merge. Adding any third-party dependency
+would require explicit approval and is out of scope here.
 
 ## Open questions
-- None blocking. If a case genuinely cannot be expressed language-neutrally,
-  leave it inline, list it explicitly in the report with the reason, and cover
-  everything else.
+- None blocking. Two decisions remain open for later phases (reminder strategy
+  when the app is closed; v1 scope) — neither affects `BoardCore`, which is
+  pure domain logic.
